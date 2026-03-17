@@ -1,0 +1,542 @@
+---
+title: "AcademiaController"
+description: "The single application controller — all business operations go through this class."
+---
+
+`AcademiaController` is the top-level façade for the entire NOUS Academy domain. Every action performed from the UI layer passes through one of its methods. The class holds the academy's metadata and five entity arrays, and it is responsible for delegating to the correct domain object, handling file persistence on every state change, and propagating domain exceptions to the caller.
+
+## State
+
+| Field | Type | Description |
+|---|---|---|
+| `nit` | `String` | Academy tax ID |
+| `nombre` | `String` | Academy display name |
+| `telefono` | `String` | Contact phone number |
+| `correo` | `String` | Contact email. Must end with `nousacademy.co` |
+| `capital` | `double` | Current available funds. Increased by membership payments; reduced by contract costs |
+| `usuarios` | `Usuario[]` | All administrator accounts |
+| `estudiantes` | `Estudiante[]` | All student accounts |
+| `docentes` | `Docente[]` | All teacher accounts |
+| `reservas` | `Reserva[]` | All class reservations |
+| `grupos` | `Grupo[]` | All groups |
+
+The `base` constant `"datos/"` is the directory prefix for all file I/O.
+
+<Note>
+  Every setter that modifies academy metadata (`setNit`, `setNombre`, `setTelefono`, `setCorreo`) rewrites the full `datos/NousAcademy.txt` file to keep the persisted state in sync.
+</Note>
+
+---
+
+## Method reference
+
+<AccordionGroup>
+
+<Accordion title="Academy metadata">
+
+These methods read and update the academy's core identity fields. Every setter that modifies a field also persists all five fields to `datos/NousAcademy.txt`.
+
+**`getNit() → String`** — Returns the academy NIT.
+
+**`setNit(String nit) throws IOException`** — Updates the NIT and writes `NousAcademy.txt`.
+
+**`getNombre() → String`** — Returns the academy name.
+
+**`setNombre(String nombre) throws IOException`** — Updates the name and writes `NousAcademy.txt`.
+
+**`getTelefono() → String`** — Returns the phone number.
+
+<ParamField path="telefono" type="String">
+  The new phone number. Must parse to a non-negative integer or `setTelefono` throws `ValoresNegativos`.
+</ParamField>
+
+**`setTelefono(String telefono) throws IOException, ValoresNegativos, IllegalArgumentException`** — Validates the phone, updates the field, and writes `NousAcademy.txt`.
+
+**`getCorreo() → String`** — Returns the email address.
+
+**`setCorreo(String correo) throws IOException, CorreoNoValido`** — Validates that `correo` contains `@` and ends with `nousacademy.co`, updates the field, and writes `NousAcademy.txt`.
+
+**`getCapital() → double`** — Returns the current capital balance.
+
+</Accordion>
+
+<Accordion title="Search methods">
+
+Internal lookup methods used by all other controller methods. You can also call them directly to retrieve a specific entity from the UI layer.
+
+**`buscarUnEstudiante(TipoDocumento tipoDocumento, String numeroDocumento) → Estudiante`**
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type of the student to find.
+</ParamField>
+<ParamField path="numeroDocumento" type="String" required>
+  Document number of the student to find.
+</ParamField>
+
+Throws `ElementoNoExistente` if no match is found.
+
+---
+
+**`buscarUnDocente(TipoDocumento tipoDocumento, String numeroDocumento) → Docente`**
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type of the teacher to find.
+</ParamField>
+<ParamField path="numeroDocumento" type="String" required>
+  Document number of the teacher to find.
+</ParamField>
+
+Throws `ElementoNoExistente` if no match is found.
+
+---
+
+**`buscarUnUsuario(TipoDocumento tipoDocumento, String numeroDocumento) → Usuario`**
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type of the administrator to find.
+</ParamField>
+<ParamField path="numeroDocumento" type="String" required>
+  Document number of the administrator to find.
+</ParamField>
+
+Throws `ElementoNoExistente` if no match is found.
+
+---
+
+**`buscarUnGrupo(String codigo) → Grupo`**
+
+<ParamField path="codigo" type="String" required>
+  Group code (e.g., `GRUP001`).
+</ParamField>
+
+Throws `ElementoNoExistente` if no group with that code exists.
+
+---
+
+**`buscarUnaReserva(String codigo) → Reserva`**
+
+<ParamField path="codigo" type="String" required>
+  Reservation code (matches the embedded class code, e.g., `PB-001` or `PV-001`).
+</ParamField>
+
+Throws `ElementoNoExistente` if no reservation with that code exists.
+
+</Accordion>
+
+<Accordion title="Administrator management">
+
+**`crearUsuario(...) throws ElementosVacios, CorreoNoValido, NombreNoValido, IOException, ValoresNegativos, LongitudNoValida, Duplicados`**
+
+Creates a new administrator account, checks for duplicate document or username, appends to `usuarios`, and serializes to `<TD><ND>.usr`.
+
+<ParamField path="nombre" type="String" required>First name.</ParamField>
+<ParamField path="apellidos" type="String" required>Last name(s).</ParamField>
+<ParamField path="telefono" type="String" required>Phone number.</ParamField>
+<ParamField path="correo" type="String" required>Email. Must end with `nousacademy.co`.</ParamField>
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number.</ParamField>
+<ParamField path="usuario" type="String" required>Login username.</ParamField>
+<ParamField path="contrasena" type="String" required>Login password.</ParamField>
+
+**File side effects:** Writes `datos/<TD><ND>.usr`.
+
+---
+
+**`eliminarUsuario(TipoDocumento tipoDocumento, String numeroDocumento) throws ElementoNoExistente`**
+
+Locates the administrator by document identity, deletes their `.usr` file, and removes them from `usuarios`.
+
+**File side effects:** Deletes `datos/<TD><ND>.usr`.
+
+---
+
+**`actualizarUsuario(TipoDocumento originalTD, String originalND, String nombre, String apellidos, String telefono, String correo, TipoDocumento tipoDocumento, String numeroDocumento) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos`**
+
+Finds the administrator using the original identity, applies each non-empty field update, then deletes the old file and writes a new one under the updated identity.
+
+**File side effects:** Deletes old `.usr` file; writes new `datos/<newTD><newND>.usr`.
+
+---
+
+**`leerUsuarios() → Usuario[]`** — Returns a clone of the `usuarios` array.
+
+</Accordion>
+
+<Accordion title="Student management">
+
+**`crearEstudiante(...) throws ElementosVacios, CorreoNoValido, NombreNoValido, IOException, ValoresNegativos, LongitudNoValida, Duplicados`**
+
+Creates a new student account, checks for duplicates, appends to `estudiantes`, and writes the student to disk.
+
+<ParamField path="nombre" type="String" required>First name.</ParamField>
+<ParamField path="apellidos" type="String" required>Last name(s).</ParamField>
+<ParamField path="telefono" type="String" required>Phone number.</ParamField>
+<ParamField path="correo" type="String" required>Email.</ParamField>
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number.</ParamField>
+<ParamField path="usuario" type="String" required>Login username.</ParamField>
+<ParamField path="contrasena" type="String" required>Login password.</ParamField>
+
+**File side effects:** Writes `datos/<TD><ND>.est`.
+
+---
+
+**`eliminarEstudiante(TipoDocumento tipoDocumento, String numeroDocumento) throws ElementoNoExistente`**
+
+Locates and removes the student from `estudiantes`, then deletes their `.est` file.
+
+**File side effects:** Deletes `datos/<TD><ND>.est`.
+
+---
+
+**`actualizarEstudiante(TipoDocumento originalTD, String originalND, String nombre, String apellidos, String telefono, String correo, TipoDocumento tipoDocumento, String numeroDocumento) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos`**
+
+Same update pattern as `actualizarUsuario` applied to a student.
+
+**File side effects:** Deletes old `.est`; writes `datos/<newTD><newND>.est`.
+
+---
+
+**`leerEstudiantes() → Estudiante[]`** — Returns a clone of the `estudiantes` array.
+
+</Accordion>
+
+<Accordion title="Teacher management">
+
+**`crearDocente(...) throws ElementosVacios, CorreoNoValido, NombreNoValido, IOException, ValoresNegativos, LongitudNoValida, Duplicados`**
+
+Creates a new teacher account with the given specialty, checks for duplicates, and writes to disk.
+
+<ParamField path="nombre" type="String" required>First name.</ParamField>
+<ParamField path="apellidos" type="String" required>Last name(s).</ParamField>
+<ParamField path="telefono" type="String" required>Phone number.</ParamField>
+<ParamField path="correo" type="String" required>Email.</ParamField>
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number.</ParamField>
+<ParamField path="usuario" type="String" required>Login username.</ParamField>
+<ParamField path="contrasena" type="String" required>Login password.</ParamField>
+<ParamField path="especialidad" type="String" required>Teaching specialty. Must not be empty.</ParamField>
+
+**File side effects:** Writes `datos/<TD><ND>.doce`.
+
+---
+
+**`eliminarDocente(TipoDocumento tipoDocumento, String numeroDocumento) throws ElementoNoExistente`**
+
+Removes the teacher from `docentes` and deletes their file.
+
+**File side effects:** Deletes `datos/<TD><ND>.doce`.
+
+---
+
+**`actualizarDocente(TipoDocumento originalTD, String originalND, String nombre, String apellidos, String telefono, String correo, TipoDocumento tipoDocumento, String numeroDocumento, String especialidad) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos`**
+
+Applies non-empty field updates (including `especialidad`) and rewrites the teacher's file.
+
+**File side effects:** Deletes old `.doce`; writes `datos/<newTD><newND>.doce`.
+
+---
+
+**`leerDocentes() → Docente[]`** — Returns a clone of the `docentes` array.
+
+</Accordion>
+
+<Accordion title="Membership management">
+
+**`asignarMembresiaDefinida(TipoDocumento tipoDocumento, String numeroDocumento, TipoMembresia tipo, LocalDate fechaInicio, int meses) throws FechaInvalida, ValoresNegativos, TipoMembresiaInvalida, EstadoMembresiaInvalido, ElementoNoExistente, IOException`**
+
+Assigns a predefined plan (`BASICA`, `INTENSIVA`, or `PREMIUM`) to a student. Adds the membership price to `capital` and rewrites `NousAcademy.txt`.
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Student's document type.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Student's document number.</ParamField>
+<ParamField path="tipo" type="TipoMembresia" required>Plan type. Must not be `PERSONALIZADA`.</ParamField>
+<ParamField path="fechaInicio" type="LocalDate" required>Membership start date. Must not be in the past.</ParamField>
+<ParamField path="meses" type="int" required>Duration in months. Must be > 0.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.est`; rewrites `datos/NousAcademy.txt`.
+
+---
+
+**`asignarMembresiaPersonalizada(TipoDocumento tipoDocumento, String numeroDocumento, LocalDate fechaInicio, double precio, int clasesPrivadas, int meses) throws ValoresNegativos, FechaInvalida, EstadoMembresiaInvalido, ElementosVacios, ElementoNoExistente, IOException`**
+
+Assigns a fully custom membership to a student. Adds `precio` to `capital`.
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Student's document type.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Student's document number.</ParamField>
+<ParamField path="fechaInicio" type="LocalDate" required>Start date.</ParamField>
+<ParamField path="precio" type="double" required>Total price. Must be > 0.</ParamField>
+<ParamField path="clasesPrivadas" type="int" required>Private class quota. Must be ≥ 0.</ParamField>
+<ParamField path="meses" type="int" required>Duration in months. Must be > 0.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.est`; rewrites `datos/NousAcademy.txt`.
+
+---
+
+**`actualizarEstadoMembresia(TipoDocumento tipoDocumento, String numeroDocumento, EstadoMembresia estado) throws ElementoNoExistente, EstadoMembresiaInvalido, IOException`**
+
+Updates the active membership status on the specified student.
+
+<ParamField path="estado" type="EstadoMembresia" required>New state: `EN_PROGRESO`, `SUSPENDIDA`, or `CANCELADA`.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.est`.
+
+</Accordion>
+
+<Accordion title="Contract management">
+
+**`asignarContrato(TipoDocumento tipoDocumento, String numeroDocumento, LocalDate fechaInicio, double salarioBase, double horasMinimas, double costoHoraA, int meses) throws ElementoNoExistente, FechaInvalida, ValoresNegativos, EstadoContratoInvalido, DineroInsuficienteParaContratar, IOException`**
+
+Assigns a new employment contract to a teacher. Requires that `capital ≥ salarioBase * meses`; otherwise throws `DineroInsuficienteParaContratar` before any changes are made. Deducts the total salary cost from `capital`.
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Teacher's document type.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Teacher's document number.</ParamField>
+<ParamField path="fechaInicio" type="LocalDate" required>Contract start date.</ParamField>
+<ParamField path="salarioBase" type="double" required>Monthly base salary. Must be > 0.</ParamField>
+<ParamField path="horasMinimas" type="double" required>Minimum monthly hours. Must be ≥ 0.</ParamField>
+<ParamField path="costoHoraA" type="double" required>Rate per additional private hour. Must be ≥ 0.</ParamField>
+<ParamField path="meses" type="int" required>Contract duration in months. Must be > 0.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.doce`; rewrites `datos/NousAcademy.txt`.
+
+---
+
+**`actualizarEstadoContratoDocente(TipoDocumento tipoDocumento, String numeroDocumento, EstadoContrato estado) throws EstadoContratoInvalido, ElementosVacios, ElementoNoExistente, IOException`**
+
+Changes the contract status on the specified teacher. Passing `FINALIZADO` additionally nullifies the teacher's active contract reference.
+
+<ParamField path="estado" type="EstadoContrato" required>New state: `ACTIVO`, `SUSPENDIDO`, or `FINALIZADO`.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.doce`.
+
+</Accordion>
+
+<Accordion title="Reservation management">
+
+**`crearUnaReservaGrupal(LocalDateTime horaInicioEsperada, String titulo, String descripcion, String tema, float duracion, int aforoMin, int aforoMax) throws ElementosVacios, AforoIncompatible, IOException, FechaInvalida, ValoresNegativos`**
+
+Creates a group class reservation and appends it to `reservas`. Does not pre-enroll any students.
+
+<ParamField path="horaInicioEsperada" type="LocalDateTime" required>Scheduled start. Must be in the future.</ParamField>
+<ParamField path="titulo" type="String" required>Class title.</ParamField>
+<ParamField path="descripcion" type="String" required>Class description.</ParamField>
+<ParamField path="tema" type="String" required>Subject or theme.</ParamField>
+<ParamField path="duracion" type="float" required>Duration in minutes. Must be > 0.</ParamField>
+<ParamField path="aforoMin" type="int" required>Minimum attendees required to start. Must be ≥ 0.</ParamField>
+<ParamField path="aforoMax" type="int" required>Maximum attendees allowed. Must be ≥ `aforoMin`.</ParamField>
+
+**File side effects:** Writes `datos/<clase.codigo>.res`.
+
+---
+
+**`crearUnaReservaPersonalizada(Estudiante estudiante, LocalDateTime horaInicioEsperada, String titulo, String descripcion, String tema, float duracion, String info) throws ElementosVacios, ClasesPrivadasNoSuficientes, ClaseYaReservada, ClaseLlena, IOException, FechaInvalida, ValoresNegativos`**
+
+Creates a private class reservation and immediately enrolls `estudiante`. The student's private class quota is decremented and `reservado` is set to `true`.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student requesting the private class.</ParamField>
+<ParamField path="info" type="String">Optional supplementary notes. May be empty.</ParamField>
+
+**File side effects:** Writes `datos/<clase.codigo>.res`.
+
+---
+
+**`eliminarReserva(String codigo) throws ElementoNoExistente`**
+
+Cancels the reservation administratively (sets state to `CANCELADA`, releases all enrolled students), deletes the file, and removes the entry from `reservas`.
+
+<ParamField path="codigo" type="String" required>Reservation code (e.g., `PB-001`).</ParamField>
+
+**File side effects:** Deletes `datos/<codigo>.res`.
+
+---
+
+**`leerReservas() → Reserva[]`** — Returns a clone of the `reservas` array.
+
+---
+
+**`asignarClase(TipoDocumento tipoDocumento, String numeroDocumento, String codigo) throws ElementoNoExistente, IOException`**
+
+Assigns a teacher to a reservation. Sets `estadoDocente = ACEPTADA` and adds the reservation to the teacher's `historialClasesImpartidas`.
+
+<ParamField path="codigo" type="String" required>Reservation code.</ParamField>
+
+**File side effects:** Rewrites `datos/<codigo>.res` and `datos/<TD><ND>.doce`.
+
+---
+
+**`cancelarDocente(TipoDocumento tipoDocumento, String numeroDocumento, String codigo) throws ElementoNoExistente, NingunDocenteAsignado, ReservaNoEnDocente, IOException`**
+
+Removes the teacher from the reservation, sets `estadoDocente = EN_ESPERA`, and removes the reservation from the teacher's history.
+
+**File side effects:** Rewrites `datos/<codigo>.res` and `datos/<TD><ND>.doce`.
+
+---
+
+**`inciarReserva(Docente docente, String codigo) throws ElementoNoExistente, DocenteRetardado, ClaseEnEstadoNoIniciar, NoSuficienteAforo, IOException`**
+
+Starts a reservation. Validates timing window and minimum attendance, then sets `estadoReserva = EN_CURSO` and records `horaInicioReal`.
+
+<ParamField path="docente" type="Docente" required>The logged-in teacher starting the class.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.doce` and `datos/<codigo>.res`.
+
+---
+
+**`finalizarReserva(Docente docente, String codigo) throws ElementoNoExistente, ClaseNuncaIniciada, FinalizacionPrematuraDeReserva, IOException`**
+
+Ends a reservation, records `horaCierreReal`, calculates `duracionReal`, and transitions state to `EXITOSA`, `PREMATURA`, or `TARDE`. Releases all enrolled students. Updates the teacher's worked hours if the class was `EXITOSA`.
+
+**File side effects:** Rewrites `datos/<TD><ND>.doce` and `datos/<codigo>.res`.
+
+---
+
+**`calificarReserva(Estudiante estudiante, float calificacion, String codigo) throws ElementoNoExistente, ClaseEnEstadoNOCalificar, EstudianteNoEnlistadoEnReserva, IOException, CalificacionInvalida`**
+
+Adds the student's rating (1–5) to the reservation and triggers recalculation of `calificacionGeneral` and the teacher's average rating.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student submitting the rating.</ParamField>
+<ParamField path="calificacion" type="float" required>Rating value between 1 and 5 inclusive.</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.est` and `datos/<codigo>.res`.
+
+---
+
+**`reservarClase(Estudiante estudiante, String codigo) throws ElementoNoExistente, ClasesPrivadasNoSuficientes, ClaseYaReservada, ClaseLlena, IOException`**
+
+Enrolls a student in an existing group class reservation. For private classes use `crearUnaReservaPersonalizada` instead.
+
+**File side effects:** Rewrites `datos/<TD><ND>.est` and `datos/<codigo>.res`.
+
+---
+
+**`cancelarResrva(Estudiante estudiante, String codigo) throws ElementoNoExistente, EstudianteNoEnlistadoEnReserva, ClaseEnEstadoNoCancelar, ClaseNoEnEstudiante, IOException`**
+
+Cancels a student's enrollment. Not allowed within 30 minutes of the scheduled start. For private classes, the reservation state moves to `CANCELADA`.
+
+**File side effects:** Rewrites `datos/<TD><ND>.est` and `datos/<codigo>.res`.
+
+---
+
+**`unirseReserva(Estudiante estudiante, String codigo) throws ElementoNoExistente, ClaseEnEstadoNoUnirse, EstudianteNoEnlistadoEnReserva, IOException`**
+
+Marks a student as an attendee of an in-progress class, adding them to the `asistentes` array. Only valid when `estadoReserva == EN_CURSO`.
+
+**File side effects:** Rewrites `datos/<TD><ND>.est` and `datos/<codigo>.res`.
+
+</Accordion>
+
+<Accordion title="Group management">
+
+**`crearGrupo(String nombre, String descripcion) throws ElementosVacios, IOException`**
+
+Creates a new group, appends to `grupos`, and writes the group file.
+
+<ParamField path="nombre" type="String" required>Group display name. Must not be empty.</ParamField>
+<ParamField path="descripcion" type="String" required>Group description. Must not be empty.</ParamField>
+
+**File side effects:** Writes `datos/<codigo>.grp`.
+
+---
+
+**`actualizarGrupo(String codigo, String nombre, String descripcion) throws ElementoNoExistente, IOException`**
+
+Updates the group's name and/or description. Skips any field that is empty.
+
+**File side effects:** Rewrites `datos/<codigo>.grp`.
+
+---
+
+**`eliminarGrupo(String codigo) throws ElementoNoExistente, GrupoNoEncontrado`**
+
+Runs `eliminacionAdministrativa()` on the group (removes it from every student's group list), deletes the file, and removes the group from `grupos`.
+
+**File side effects:** Deletes `datos/<codigo>.grp`.
+
+---
+
+**`entrarGrupo(Estudiante estudiante, String codigo) throws ElementoNoExistente, CantidadGruposExcedida, IOException, Duplicados`**
+
+Adds the logged-in student to the specified group. Enforces the 4-group maximum and the no-duplicate rule.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student joining the group.</ParamField>
+<ParamField path="codigo" type="String" required>Group code (e.g., `GRUP001`).</ParamField>
+
+**File side effects:** Rewrites `datos/<TD><ND>.est` and `datos/<codigo>.grp`.
+
+---
+
+**`salirseGrupo(Estudiante estudiante, String codigo) throws ElementoNoExistente, GrupoNoEncontrado, EstudianteNoEnGrupo, IOException`**
+
+Removes the logged-in student from the specified group.
+
+**File side effects:** Rewrites `datos/<TD><ND>.est` and `datos/<codigo>.grp`.
+
+---
+
+**`añadirDocente(TipoDocumento tipoDocumento, String numeroDocumento, String codigo) throws ElementoNoExistente, IOException`**
+
+Adds a teacher to a group.
+
+**File side effects:** Rewrites `datos/<codigo>.grp` and `datos/<TD><ND>.doce`.
+
+---
+
+**`anadirReserva(String codigoGrupo, String codigoReserva) throws ElementoNoExistente, IOException`**
+
+Links an existing reservation to a group.
+
+**File side effects:** Rewrites `datos/<codigoReserva>.res` and `datos/<codigoGrupo>.grp`.
+
+---
+
+**`eliminarReserva(String codigoGrupo, String codigoReserva) throws ElementoNoExistente, ReservaNoEncontradaEnGrupo, IOException`**
+
+Unlinks a reservation from a group. The reservation continues to exist in `reservas`; only the group's reference is removed.
+
+**File side effects:** Rewrites `datos/<codigoReserva>.res` and `datos/<codigoGrupo>.grp`.
+
+---
+
+**`eliminarDocente(TipoDocumento tipoDocumento, String numeroDocumento, String codigo) throws ElementoNoExistente, DocenteNoEnGrupo, IOException`**
+
+Removes a teacher from a group (not from the academy).
+
+**File side effects:** Rewrites `datos/<codigo>.grp` and `datos/<TD><ND>.doce`.
+
+</Accordion>
+
+<Accordion title="Capital management">
+
+**`inyectarCapital(float capital) throws ValoresNegativos, IOException`**
+
+Adds funds to the academy's capital balance. The amount must be non-negative.
+
+<ParamField path="capital" type="float" required>Amount to add. Must be ≥ 0.</ParamField>
+
+**File side effects:** Rewrites `datos/NousAcademy.txt`.
+
+---
+
+**`retirarCapital(float capital) throws ValoresNegativos, IOException, ImposibleRetirar`**
+
+Deducts funds from the academy's capital balance. Throws `ImposibleRetirar` if the withdrawal would make the balance negative.
+
+<ParamField path="capital" type="float" required>Amount to withdraw. Must be ≥ 0 and ≤ current `capital`.</ParamField>
+
+**File side effects:** Rewrites `datos/NousAcademy.txt`.
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Related pages
+
+- [Usuario](/reference/data-model/usuario)
+- [Estudiante](/reference/data-model/estudiante)
+- [Docente](/reference/data-model/docente)
+- [Grupo](/reference/data-model/grupo)
+- [Reserva](/reference/data-model/reserva)
+- [Membresia](/reference/data-model/membresia)
+- [Contrato](/reference/data-model/contrato)
+- [Exceptions overview](/reference/exceptions/overview)

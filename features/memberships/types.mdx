@@ -1,0 +1,138 @@
+---
+title: "Membership types"
+description: "Compare BASICA, INTENSIVA, PREMIUM, and PERSONALIZADA membership plans with their pricing and private-class quotas."
+---
+
+NOUS Academy offers four membership types defined in the `TipoMembresia` enum. Three are predefined tiers with fixed pricing formulas; one is fully customizable.
+
+```java
+public enum TipoMembresia {
+    BASICA,
+    INTENSIVA,
+    PREMIUM,
+    PERSONALIZADA;
+}
+```
+
+## Comparison table
+
+| Plan | Private classes | Price formula | Example: 3 months |
+|---|---|---|---|
+| `BASICA` | 0 (no private classes) | $1,200,000 × months | $3,600,000 |
+| `INTENSIVA` | 4 × months | $2,200,000 × months | $6,600,000 (12 classes) |
+| `PREMIUM` | 8 × months | $3,500,000 × months | $10,500,000 (24 classes) |
+| `PERSONALIZADA` | Set by admin | Set by admin | Varies |
+
+<Tip>
+  Choose `BASICA` for students who only attend group classes and do not need one-on-one sessions. Use `INTENSIVA` for students who want occasional private coaching, and `PREMIUM` for those who train primarily through private classes. Use `PERSONALIZADA` when a student negotiates a bespoke arrangement that falls outside any of the standard tiers.
+</Tip>
+
+## Plan details
+
+<Tabs>
+  <Tab title="BASICA">
+    The entry-level plan. It grants access to group classes but includes no private-class quota.
+
+    - **Price:** $1,200,000 per month
+    - **Private classes:** 0 (group classes only)
+    - **Typical use:** Students who attend scheduled group sessions exclusively
+
+    ```java
+    case BASICA:
+        this.clasesPrivadas = 0;
+        this.precio = 1200000 * meses;
+        break;
+    ```
+  </Tab>
+  <Tab title="INTENSIVA">
+    A mid-tier plan that adds four private-class slots per month.
+
+    - **Price:** $2,200,000 per month
+    - **Private classes:** 4 per month (4 × months total)
+    - **Typical use:** Students who supplement group classes with regular private sessions
+
+    ```java
+    case INTENSIVA:
+        this.clasesPrivadas = 4 * meses;
+        this.precio = 2200000 * meses;
+        break;
+    ```
+  </Tab>
+  <Tab title="PREMIUM">
+    The top-tier predefined plan with the highest private-class quota.
+
+    - **Price:** $3,500,000 per month
+    - **Private classes:** 8 per month (8 × months total)
+    - **Typical use:** Students focused primarily on one-on-one instruction
+
+    ```java
+    case PREMIUM:
+        this.clasesPrivadas = 8 * meses;
+        this.precio = 3500000 * meses;
+        break;
+    ```
+  </Tab>
+  <Tab title="PERSONALIZADA">
+    A fully custom plan with admin-defined pricing and quota.
+
+    - **Price:** Any positive value, set by the administrator
+    - **Private classes:** Any non-negative value, set by the administrator
+    - **Typical use:** Negotiated arrangements, promotions, or edge cases
+
+    Unlike the predefined tiers, this plan cannot be created through the `TipoMembresia`-based constructor. It requires the dedicated custom constructor.
+  </Tab>
+</Tabs>
+
+## Constructors
+
+### Predefined membership constructor
+
+Use this constructor for `BASICA`, `INTENSIVA`, and `PREMIUM`:
+
+```java
+public Membresia(TipoMembresia tipoMembresia, LocalDate fechaInicio, int meses)
+        throws TipoMembresiaInvalida, ValoresNegativos, FechaInvalida
+```
+
+**Parameters:**
+
+| Parameter | Type | Requirement |
+|---|---|---|
+| `tipoMembresia` | `TipoMembresia` | Must not be `null` and must not be `PERSONALIZADA` |
+| `fechaInicio` | `LocalDate` | Must not be `null` and must not be in the past |
+| `meses` | `int` | Must be greater than 0 |
+
+Passing `TipoMembresia.PERSONALIZADA` to this constructor explicitly throws `TipoMembresiaInvalida`. The price and `clasesPrivadas` are computed inside the constructor via a `switch` on `tipoMembresia`.
+
+### Custom membership constructor
+
+Use this constructor for `PERSONALIZADA`:
+
+```java
+public Membresia(LocalDate fechaInicio, double precio, int clasesPrivadas, int meses)
+        throws FechaInvalida, ValoresNegativos
+```
+
+**Parameters:**
+
+| Parameter | Type | Requirement |
+|---|---|---|
+| `fechaInicio` | `LocalDate` | Must not be `null` and must not be in the past |
+| `precio` | `double` | Must be greater than 0 |
+| `clasesPrivadas` | `int` | Must be 0 or greater |
+| `meses` | `int` | Must be greater than 0 |
+
+This constructor always sets `tipoMembresia` to `PERSONALIZADA` internally.
+
+<Note>
+  Both constructors initialize `estadoMembresia` to `EN_PROGRESO` and compute `fechaVencimiento` as `fechaInicio.plusMonths(meses)`.
+</Note>
+
+## Choosing between predefined and custom plans
+
+When calling `AcademiaController` methods, you select the appropriate constructor indirectly through which method you call:
+
+- **`asignarMembresiaDefinida`** — wraps the predefined constructor; accepts `BASICA`, `INTENSIVA`, or `PREMIUM` only.
+- **`asignarMembresiaPersonalizada`** — wraps the custom constructor; you supply `precio` and `clasesPrivadas` directly.
+
+See [Memberships overview](/features/memberships/overview) for the full method signatures and the capital-impact workflow.

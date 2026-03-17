@@ -1,0 +1,129 @@
+---
+title: "Exceptions"
+description: "All custom exception classes thrown by the domain and controller layers."
+---
+
+NOUS Academy uses a checked-exception strategy: every custom exception class extends `Exception`, which means the compiler enforces that callers either catch or propagate each one. Domain objects (e.g., `Reserva`, `Membresia`, `Grupo`) throw exceptions when business rules are violated. `AcademiaController` propagates these exceptions up to the UI layer, which is the only place they should be caught and displayed to the user.
+
+## Exception handling pattern
+
+```java
+// UI layer (view / menu class)
+try {
+    controller.crearEstudiante(nombre, apellidos, telefono, correo,
+                               tipoDocumento, numeroDocumento, usuario, contrasena);
+} catch (ElementosVacios e) {
+    System.out.println("All fields are required.");
+} catch (CorreoNoValido e) {
+    System.out.println("Email must end with nousacademy.co");
+} catch (Duplicados e) {
+    System.out.println("A student with that document or username already exists.");
+}
+```
+
+<Note>
+  Never catch exceptions inside a domain class or the controller unless the recovery is a domain concern (e.g., archiving a membership before replacing it). Let all other exceptions propagate to the UI.
+</Note>
+
+---
+
+## Exception catalog
+
+<AccordionGroup>
+
+<Accordion title="User and validation exceptions">
+
+| Class | Default message | When thrown |
+|---|---|---|
+| `ElementosVacios` | `Campos vacios no permitidos` | A required string field is empty, or a required object reference is `null` |
+| `ElementoNoExistente` | *(varies)* | A lookup by document ID or code finds no matching entity in the controller's arrays |
+| `Duplicados` | *(varies)* | A user with the same document number or username already exists when creating a new account; or a student is added to a group they already belong to |
+| `NombreNoValido` | *(varies)* | `nombre` or `apellidos` is shorter than 2 characters |
+| `CorreoNoValido` | *(varies)* | Email does not contain `@` or does not end with the required domain |
+| `ValoresNegativos` | *(varies)* | A numeric field (phone, document number, hours, salary, capital) is negative |
+| `LongitudNoValida` | *(varies)* | `telefono` or `numeroDocumento` has fewer than 5 characters |
+| `FechaInvalida` | *(varies)* | A date is `null` or falls before today (for memberships, contracts) or before the current moment (for reservation start times) |
+
+</Accordion>
+
+<Accordion title="Membership exceptions">
+
+| Class | Default message | When thrown |
+|---|---|---|
+| `EstadoMembresiaInvalido` | `El estado de la membresia no es valido` | `null` is passed to `actualizarEstadoMembresia()` |
+| `TipoMembresiaInvalida` | *(varies)* | A `null` type or `PERSONALIZADA` is used with the defined-plan constructor |
+| `EstudianteSinMembresia` | *(varies)* | An operation requires an active membership but the student's `membresia` field is `null` |
+
+</Accordion>
+
+<Accordion title="Contract exceptions">
+
+| Class | Default message | When thrown |
+|---|---|---|
+| `EstadoContratoInvalido` | *(varies)* | `null` is passed to `actualizarEstadoContrato()` |
+| `EstadoContratoDoc` | *(varies)* | Attempting to assign a contract with status `FINALIZADO` to a teacher via `setContrato()` |
+| `DineroInsuficienteParaContratar` | `No hay suficiente capital para contratar` | The academy's `capital` is less than `salarioBase * meses` when `asignarContrato()` is called |
+
+</Accordion>
+
+<Accordion title="Class and reservation exceptions">
+
+| Class | Default message | When thrown |
+|---|---|---|
+| `AforoIncompatible` | `Aforo incompatible: el máximo no puede ser menor al mínimo.` | `aforoMaximo < aforoMinimo` when creating a `ClaseGrupal` |
+| `ClaseLlena` | *(varies)* | A student tries to enroll in a reservation whose state is already `LLENA` |
+| `ClaseYaReservada` | *(varies)* | A student whose `reservado == true` tries to book another class |
+| `ClaseEnEstadoNoCancelar` | *(varies)* | A student tries to cancel a reservation within 30 minutes of the scheduled start |
+| `ClaseEnEstadoNoIniciar` | *(varies)* | A teacher tries to start a class more than 5 minutes before the scheduled time |
+| `ClaseEnEstadoNOCalificar` | *(varies)* | A student tries to rate a reservation whose state is not `EXITOSA`, `PREMATURA`, or `TARDE` |
+| `ClaseEnEstadoNoUnirse` | *(varies)* | A student calls `unirseClase()` when the reservation is not `EN_CURSO` |
+| `ClaseNuncaIniciada` | *(varies)* | `finalizarClase()` is called on a reservation that is not `EN_CURSO` |
+| `ClasesPrivadasNoSuficientes` | *(varies)* | A student with `clasesPrivadasRestantes == 0` tries to book a private class |
+| `CalificacionInvalida` | *(varies)* | A rating value is outside the range 1–5 |
+| `FinalizacionPrematuraDeReserva` | `Finalizo la clase antes de tiempo` | The teacher ends the class more than 25 minutes before the planned duration |
+| `DocenteRetardado` | *(varies)* | The teacher starts the class more than 10 minutes after `horaInicioEsperada`; sets state to `TARDE` |
+| `NingunDocenteAsignado` | *(varies)* | `cancelarDocente()` is called on a reservation with no teacher assigned |
+| `ClaseNoEnEstudiante` | *(varies)* | The class being cancelled is not found in the student's `historialClases` |
+| `EstudianteNoEnlistadoEnReserva` | *(varies)* | The student is not present in the reservation's `estudiantes` (for cancellation/joining) or `asistentes` (for rating) array |
+| `NoSuficienteAforo` | *(varies)* | A group class start is attempted when the number of enrolled students is below `aforoMinimo` |
+
+</Accordion>
+
+<Accordion title="Group exceptions">
+
+| Class | Default message | When thrown |
+|---|---|---|
+| `CantidadGruposExcedida` | *(varies)* | A student who already belongs to 4 groups tries to join a fifth |
+| `GrupoNoEncontrado` | *(varies)* | A group is not found in a student's `grupos` array during removal |
+| `EstudianteNoEnGrupo` | *(varies)* | A student is not found in the group's `estudiantes` array during removal |
+| `DocenteNoEnGrupo` | *(varies)* | A teacher is not found in the group's `docentes` array during removal |
+| `ReservaNoEncontradaEnGrupo` | *(varies)* | A reservation code does not match any entry in the group's `reservas` array |
+| `ReservaNoEnDocente` | *(varies)* | A reservation is not found in the teacher's `historialClasesImpartidas` during cancellation |
+| `ImposibleRetirar` | *(varies)* | The requested withdrawal amount exceeds the current `capital` balance |
+
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Exception class structure
+
+All exceptions follow the same minimal pattern:
+
+```java
+public class ElementosVacios extends Exception {
+    public ElementosVacios() {
+        super("Campos vacios no permitidos");
+    }
+}
+```
+
+They carry no additional fields. Error details are encoded entirely in the exception type itself, and the UI layer selects the appropriate user-facing message based on which class is caught.
+
+## Related pages
+
+- [AcademiaController](/reference/controller/academia-controller) — the primary source of thrown exceptions in the application
+- [Reserva](/reference/data-model/reserva) — the domain class that throws the most exceptions
+- [Membresia](/reference/data-model/membresia) — membership-related exceptions
+- [Contrato](/reference/data-model/contrato) — contract-related exceptions

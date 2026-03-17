@@ -1,0 +1,104 @@
+---
+title: "Group classes"
+description: "How ClaseGrupal works in NOUS Academy — capacity constraints, minimum attendance, and the admin creation workflow."
+---
+
+A group class (`ClaseGrupal`) is an open session that multiple students can attend, subject to a minimum and maximum attendance capacity. Administrators create group class reservations; students then enroll themselves.
+
+## Class definition
+
+`ClaseGrupal` extends the abstract `Clase` base class and adds three fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `aforoMinimo` | `int` | Minimum students required to start the class |
+| `aforoMaximo` | `int` | Maximum students allowed to enroll |
+| `aforoActual` | `int` | Current enrollment count (initialized to `0`) |
+
+The code suffix is `PB` (público), producing codes like `PB-001`, `PB-002`, and so on.
+
+## Creating a group class reservation
+
+Administrators create group class reservations by calling `crearUnaReservaGrupal` on the controller:
+
+```java
+controller.crearUnaReservaGrupal(
+    horaInicioEsperada,  // LocalDateTime — must be in the future
+    titulo,              // String        — class title (required)
+    descripcion,         // String        — full description (required)
+    tema,                // String        — subject area (required)
+    duracion,            // float         — duration in minutes (must be > 0)
+    aforoMin,            // int           — minimum attendance (must be >= 0)
+    aforoMax             // int           — maximum capacity (must be >= aforoMin)
+);
+```
+
+### Parameter validation
+
+| Parameter | Validation | Exception thrown |
+|---|---|---|
+| `horaInicioEsperada` | Must be in the future | `FechaInvalida` |
+| `titulo`, `descripcion`, `tema` | Must not be empty | `ElementosVacios` |
+| `duracion` | Must be `> 0` | `ElementosVacios` or `ValoresNegativos` |
+| `aforoMin`, `aforoMax` | Must be `>= 0` | `ValoresNegativos` |
+| `aforoMax` vs `aforoMin` | `aforoMax` must be `>= aforoMin` | `AforoIncompatible` |
+
+After validation, the controller creates a `Reserva` wrapping a `ClaseGrupal`, adds it to the internal array, and writes it to disk as `datos/<code>.res`.
+
+## Attendance constraint
+
+The most important behavior of `ClaseGrupal` is the minimum attendance check enforced at class start:
+
+```java
+public boolean cumpleAforoMinimo() {
+    return aforoActual >= aforoMinimo;
+}
+```
+
+When the assigned teacher calls `inciarReserva`, the system checks whether the number of enrolled students meets `aforoMinimo`. If it does not, a `NoSuficienteAforo` exception is thrown and the class cannot start.
+
+<Warning>
+  If enrollment never reaches `aforoMinimo`, the teacher cannot start the session. An administrator must either lower the minimum, enroll more students, or delete the reservation.
+</Warning>
+
+## Capacity enforcement
+
+When a student enrolls via `reservarClase`, the system checks whether the reservation is already `LLENA`:
+
+- If `estudiantes.length == aforoMaximo` after adding the student, `estadoReserva` transitions to `LLENA`.
+- Any further enrollment attempt on a `LLENA` reservation throws `ClaseLlena`.
+
+## Reservation state machine
+
+<Steps>
+  <Step title="PENDIENTE — reservation created">
+    The admin calls `crearUnaReservaGrupal`. The reservation exists with `estadoReserva = PENDIENTE` and no teacher assigned (`estadoDocente` is `null`).
+  </Step>
+  <Step title="Teacher assigned">
+    The admin calls `asignarClase`, which sets `estadoDocente = ACEPTADA` on the reservation. Students can enroll at any point after creation.
+  </Step>
+  <Step title="LLENA — capacity reached (optional)">
+    If `estudiantes.length` equals `aforoMaximo`, the state changes to `LLENA`. No more students can join.
+  </Step>
+  <Step title="EN_CURSO — class started">
+    The teacher calls `inciarReserva` within the valid time window (no earlier than 5 minutes before `horaInicioEsperada`, no later than 10 minutes after). The state becomes `EN_CURSO` and `horaInicioReal` is recorded.
+  </Step>
+  <Step title="EXITOSA or PREMATURA — class finished">
+    The teacher calls `finalizarReserva`. If the actual duration is at least `duracion - 25` minutes, the state becomes `EXITOSA`. If the class ended more than 25 minutes early, the state becomes `PREMATURA` and a `FinalizacionPrematuraDeReserva` exception is thrown as a penalty signal.
+  </Step>
+  <Step title="Rating">
+    Students who attended (present in `asistentes[]`) can call `calificarReserva` to submit a rating from `1.0` to `5.0`. Each rating updates `calificacionGeneral` as a running average.
+  </Step>
+</Steps>
+
+<Tip>
+  The `TARDE` state is set automatically if the teacher starts the class more than 10 minutes late. The class transitions to `TARDE` before the `DocenteRetardado` exception is thrown.
+</Tip>
+
+## Timing windows
+
+| Event | Valid window |
+|---|---|
+| Start class | `horaInicioEsperada - 5 min` to `horaInicioEsperada + 10 min` |
+| Cancel student spot | More than 30 minutes before `horaInicioEsperada` |
+| Rate class | After `EXITOSA`, `PREMATURA`, or `TARDE` |

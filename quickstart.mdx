@@ -1,80 +1,117 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get NOUS Academy running and complete your first end-to-end workflow."
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+- **Java 11 or later** — the application is compiled for the standard Java SE platform.
+- The `datos/` directory must exist next to the compiled classes (or the project root when running from an IDE). The boot classes write and read files there.
 
-### Step 1: Set up your local environment
+## Running the application
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/DuqueJR/NOUS_ACADEMY.git
+    cd NOUS_ACADEMY
+    ```
+  </Step>
+  <Step title="Compile the source">
+    The project uses plain `javac`. Compile everything under `src/`:
+    ```bash
+    javac -d out -sourcepath src $(find src -name "*.java")
+    ```
+  </Step>
+  <Step title="Create the data directory">
+    ```bash
+    mkdir -p datos
+    ```
+  </Step>
+  <Step title="Launch the application">
+    Run the Swing entry point:
+    ```bash
+    java -cp out com.nousacademy.interfacegrafica.NousSwingApp
+    ```
+    The login window opens. The boot sequence loads (or creates) the academy data from `datos/NousAcademy.txt` and any serialized user/group/reservation files it finds.
+  </Step>
+</Steps>
 
-### Step 2: Deploy your changes
+## First-time setup: bootstrap the academy
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+When no data files exist, `BootEmpresa` initializes the academy and `BootDeUsarioAdmin` seeds the first administrator account.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+The default academy data loaded from `datos/NousAcademy.txt` follows this format:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```text datos/NousAcademy.txt
+5422994301
+EMPRESA
+1234
+@nousacademy.co
+0.0
+```
 
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+Fields (one per line): NIT · name · phone · email · capital.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  On first run, ensure `datos/NousAcademy.txt` exists with your academy's NIT and name. If the file is missing the boot class creates it with default values.
 </Note>
+
+## Log in as an administrator
+
+After launch the **Login** screen appears. Enter the administrator credentials seeded by `BootDeUsarioAdmin`. Once authenticated you are taken to **AdminFrame**, the main management console.
+
+## Complete a basic workflow
+
+<Steps>
+  <Step title="Create a student">
+    In **AdminFrame**, open the **Students** tab and click **New Student**. Fill in:
+    - Name and last name (minimum 2 characters each)
+    - Phone number (minimum 5 digits, positive)
+    - Email (must end with `@nousacademy.co`)
+    - Document type and number (minimum 5 digits)
+    - Username and password
+
+    The record is saved to `datos/<prefix><document>.est`.
+  </Step>
+  <Step title="Assign a membership">
+    Select the newly created student and click **Assign Membership**. Choose one of the predefined tiers:
+
+    | Tier | Private classes / month | Monthly price |
+    |---|---|---|
+    | Basic | 0 | $1,200,000 |
+    | Intensive | 4 | $2,200,000 |
+    | Premium | 8 | $3,500,000 |
+
+    Or configure a fully custom membership with your own price and private-class quota.
+  </Step>
+  <Step title="Create a teacher">
+    Open the **Teachers** tab, click **New Teacher**, and fill in the same personal fields plus an **Especialidad** (area of expertise). Then assign a contract specifying start date, base salary, minimum hours, additional-hour rate, and duration in months.
+  </Step>
+  <Step title="Create a group class reservation">
+    In the **Reservations** tab, click **New Group Reservation**. Set the expected start time, title, description, topic, duration (minutes), and minimum/maximum attendance.
+  </Step>
+  <Step title="Assign the teacher to the reservation">
+    Select the reservation and the teacher, then click **Assign Teacher**. The teacher record and reservation are both updated on disk.
+  </Step>
+  <Step title="Student joins and the class runs">
+    Log in as the student. From **StudentFrame**, join the reservation. When the teacher logs in as **TeacherFrame**, they can start and finish the class. After it finishes, the student can rate it (1–5).
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="User Management" icon="users" href="/features/users/administrators">
+    Learn all administrator, student, and teacher management operations.
+  </Card>
+  <Card title="Memberships" icon="id-card" href="/features/memberships/overview">
+    Understand the membership tiers and how to assign them.
+  </Card>
+  <Card title="Classes & Reservations" icon="calendar-check" href="/features/classes/reservations">
+    Explore the full class lifecycle from creation to rating.
+  </Card>
+  <Card title="Controller API" icon="code" href="/reference/controller/academia-controller">
+    Read the full AcademiaController method reference.
+  </Card>
+</CardGroup>

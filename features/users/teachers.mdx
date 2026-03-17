@@ -1,0 +1,240 @@
+---
+title: "Teachers"
+description: "Hire and manage teachers (docentes) in NOUS Academy — including specialties, contracts, class assignments, and performance ratings."
+---
+
+Teachers hold the `DOCENTE` role. They are represented by the `Docente` class, which extends `Usuario` and adds fields for specialty, contract management, class history, and performance rating. Administrators create teacher records, issue contracts, and assign classes; teachers deliver sessions through their own panel.
+
+## Teacher fields
+
+`Docente` inherits all nine fields from `Usuario` and adds the following:
+
+| Field | Type | Description |
+|---|---|---|
+| `nombre` | `String` | First name |
+| `apellidos` | `String` | Last name(s) |
+| `telefono` | `String` | Phone number (numeric, ≥ 5 digits) |
+| `correo` | `String` | Email address (must end with `@nousacademy.co`) |
+| `tipoDocumento` | `TipoDocumento` | Document type — `CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, or `NIT` |
+| `numeroDocumento` | `String` | Document number (numeric, ≥ 5 digits) |
+| `usuario` | `String` | Login username |
+| `contrasena` | `String` | Login password |
+| `tipoUsuario` | `TipoUsuario` | Always `DOCENTE` for this role |
+| `especialidad` | `String` | Teaching specialty — must not be empty |
+| `contrato` | `Contrato` | Current active contract (`null` if none assigned) |
+| `historialContratos` | `Contrato[]` | All previous contracts |
+| `calificacion` | `float` | Average rating from rated reservations (starts at `0`) |
+| `cantidadHorasTrabajadasMes` | `float` | Total hours worked in the current month |
+| `horasPrivadasAdicionalesMes` | `float` | Additional private hours beyond the contract minimum |
+| `historialClasesImpartidas` | `Reserva[]` | All reservations the teacher has been assigned to |
+
+## Validation rules
+
+The `Docente` constructor calls the `Usuario` constructor first, applying all base validations, then checks the `especialidad` field.
+
+| Rule | Exception thrown |
+|---|---|
+| Any `Usuario` field is empty or blank | `ElementosVacios` |
+| `nombre` or `apellidos` is fewer than 2 characters | `NombreNoValido` |
+| `correo` does not contain `@` or does not end with `nousacademy.co` | `CorreoNoValido` |
+| `telefono` or `numeroDocumento` parses to a negative number | `ValoresNegativos` |
+| `telefono` or `numeroDocumento` has fewer than 5 characters | `LongitudNoValida` |
+| `especialidad` is empty | `ElementosVacios` |
+| `tipoDocumento` + `numeroDocumento` or `usuario` already exists | `Duplicados` |
+
+<Warning>
+  The `especialidad` field is mandatory and cannot be left blank. This is enforced by both the constructor and the `crearDocente` controller method. An empty string throws `ElementosVacios`.
+</Warning>
+
+## Controller methods — CRUD
+
+All teacher CRUD operations are available to administrators in the **Docentes** tab.
+
+### `crearDocente`
+
+```java
+public void crearDocente(
+    String nombre, String apellidos, String telefono,
+    String correo, TipoDocumento tipoDocumento, String numeroDocumento,
+    String usuario, String contrasena, String especialidad
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+Creates a new `Docente`, checks for duplicate document and username, appends the teacher to the in-memory array, and writes a `.doce` file to `datos/`.
+
+### `eliminarDocente`
+
+```java
+public void eliminarDocente(
+    TipoDocumento tipoDocumento, String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Locates the teacher by document, deletes the `.doce` file, and removes the entry from the in-memory array.
+
+### `actualizarDocente`
+
+```java
+public void actualizarDocente(
+    TipoDocumento originalTD, String originalND,
+    String nombre, String apellidos, String telefono,
+    String correo, TipoDocumento tipoDocumento, String numeroDocumento,
+    String especialidad
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos
+```
+
+Updates any non-empty field on the teacher, including `especialidad`. The old `.doce` file is deleted and a new one is written after every update.
+
+### `leerDocentes`
+
+```java
+public Docente[] leerDocentes()
+```
+
+Returns a copy of the in-memory teacher array. The **Docentes** table displays name, username, document, email, phone, specialty, current contract code, contract status, and rating.
+
+## Controller methods — contract and class operations
+
+### `asignarContrato`
+
+```java
+public void asignarContrato(
+    TipoDocumento tipoDocumento, String numeroDocumento,
+    LocalDate fechaInicio, double salarioBase, double horasMinimas,
+    double costoHoraA, int meses
+) throws ElementoNoExistente, FechaInvalida, ValoresNegativos,
+         EstadoContratoInvalido, DineroInsuficienteParaContratar, IOException
+```
+
+Issues a new contract to the teacher. If the teacher already has an active contract, it is finalized and moved to `historialContratos` before the new one is set. The academy's `capital` must be at least `salarioBase × meses`; otherwise `DineroInsuficienteParaContratar` is thrown. The contract's financial impact is applied to the academy's capital on assignment.
+
+<Tip>
+  You can check the current capital balance in the **Datos generales** tab before assigning a contract to confirm there are sufficient funds.
+</Tip>
+
+### `actualizarEstadoContratoDocente`
+
+```java
+public void actualizarEstadoContratoDocente(
+    TipoDocumento tipoDocumento, String numeroDocumento,
+    EstadoContrato estado
+) throws EstadoContratoInvalido, ElementosVacios, ElementoNoExistente, IOException
+```
+
+Changes the status of the teacher's current contract. Valid statuses are `ACTIVO`, `SUSPENDIDO`, and `FINALIZADO`. Setting the status to `FINALIZADO` nullifies the `contrato` field — the teacher no longer has an active contract after this call.
+
+### `asignarClase`
+
+```java
+public void asignarClase(
+    TipoDocumento tipoDocumento, String numeroDocumento, String codigo
+) throws ElementoNoExistente, IOException
+```
+
+Assigns the teacher to a reservation identified by `codigo`. This adds the reservation to the teacher's `historialClasesImpartidas` and sets the teacher on the reservation object.
+
+### `cancelarDocente`
+
+```java
+public void cancelarDocente(
+    TipoDocumento tipoDocumento, String numeroDocumento, String codigo
+) throws ElementoNoExistente, NingunDocenteAsignado, ReservaNoEnDocente, IOException
+```
+
+Removes the teacher from a reservation. Throws `NingunDocenteAsignado` if no teacher is currently assigned to the reservation.
+
+## Calificación calculation
+
+A teacher's `calificacion` is the arithmetic mean of all ratings received across rated reservations:
+
+```java
+public void calificacionDocente() {
+    float suma = 0;
+    int n = 0; // count of rated reservations
+    for (Reserva r : this.historialClasesImpartidas) {
+        if (r.getCalificada()) {
+            suma += r.getCalificacionGeneral();
+            n++;
+        }
+    }
+    this.calificacion = suma / n;
+}
+```
+
+Only reservations where `getCalificada()` returns `true` contribute to the average. Unrated sessions are ignored. The result is stored as a `float` in the `calificacion` field and displayed in the **Docentes** table.
+
+<Note>
+  A teacher's initial `calificacion` is `0`. It is recalculated each time `calificacionDocente()` is called — typically after a student submits a rating via `calificarReserva`.
+</Note>
+
+## File persistence
+
+| Aspect | Detail |
+|---|---|
+| Extension | `.doce` |
+| File name pattern | `<doc_prefix><numeroDocumento>.doce` |
+| Storage directory | `datos/` |
+| Serialization method | `copiarFicheroDocente(String dir)` on `Docente` |
+
+The document prefix is the first two characters of the `TipoDocumento` name:
+
+```text
+CC12345678.doce
+TA98765432.doce
+CE11223344.doce
+```
+
+The file is rewritten on creation, profile update, contract assignment or status change, class assignment, and class cancellation.
+
+## Hiring a teacher
+
+<Steps>
+  <Step title="Open the Docentes tab">
+    In the **Admin Panel**, click the **Docentes** tab.
+  </Step>
+  <Step title="Fill in the creation form">
+    Complete all fields in the **Crear** section:
+
+    | Field | Requirement |
+    |---|---|
+    | **Nombre** | At least 2 characters |
+    | **Apellidos** | At least 2 characters |
+    | **Teléfono** | Numeric, at least 5 digits |
+    | **Correo** | Must end with `@nousacademy.co` |
+    | **Tipo doc.** | Select from the dropdown |
+    | **Núm. doc.** | Numeric, at least 5 digits, unique |
+    | **Usuario** | Unique username |
+    | **Contraseña** | Non-empty password |
+    | **Especialidad** | Non-empty specialty description |
+  </Step>
+  <Step title="Click Crear docente">
+    The controller validates all fields, checks for duplicates, creates the `Docente` object, and writes the `.doce` file to `datos/`. The teacher is created without a contract.
+  </Step>
+  <Step title="Assign a contract">
+    Scroll to the **Contrato** section in the same panel. Select the teacher's document, set a start date, enter the base salary, minimum hours, additional-hour cost, and contract duration in months. Click **Asignar contrato**.
+
+    The system checks that the academy's capital is at least `salarioBase × meses` before proceeding.
+  </Step>
+  <Step title="Assign classes">
+    In the **Asignar/Cancelar clase** section, enter the teacher's document and the reservation code, then click **Asignar**. The teacher is now linked to that reservation and it appears in `historialClasesImpartidas`.
+  </Step>
+  <Step title="Verify the record">
+    Click **Refrescar**. The table shows the teacher's specialty, current contract code, contract status, and rating.
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="Administrators" icon="shield-halved" href="/features/users/administrators">
+    Manage administrator accounts and platform access.
+  </Card>
+  <Card title="Students" icon="graduation-cap" href="/features/users/students">
+    Register students and manage their memberships.
+  </Card>
+  <Card title="Contracts" icon="file-contract" href="/features/contracts/overview">
+    Learn about contract structure, status transitions, and financial impact.
+  </Card>
+  <Card title="Reservations" icon="calendar" href="/features/classes/reservations">
+    Understand how teachers are assigned to and run class sessions.
+  </Card>
+</CardGroup>

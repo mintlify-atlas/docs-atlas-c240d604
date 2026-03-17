@@ -1,0 +1,83 @@
+---
+title: "Docente"
+description: "Teacher user model that extends Usuario with a contract, teaching history, and performance rating."
+---
+
+`Docente` extends [`Usuario`](/reference/data-model/usuario) and represents a teacher employed by the academy. On creation, the role is set to `DOCENTE` and all arrays are initialized as empty. A teacher must have an active [`Contrato`](/reference/data-model/contrato) to be paid for their work.
+
+## Inherited fields
+
+`Docente` inherits all fields from `Usuario`: `nombre`, `apellidos`, `telefono`, `correo`, `tipoDocumento`, `numeroDocumento`, `usuario`, `contrasena`, and `tipoUsuario` (always `DOCENTE`).
+
+## Additional fields
+
+<ResponseField name="especialidad" type="String" required>
+  The teacher's area of expertise (e.g., yoga, dance, fitness). Must not be empty at construction time.
+</ResponseField>
+
+<ResponseField name="contrato" type="Contrato">
+  The teacher's currently active contract. `null` until a contract is assigned. When a new contract is assigned, the previous one is set to `FINALIZADO` and moved to `historialContratos`.
+</ResponseField>
+
+<ResponseField name="historialContratos" type="Contrato[]">
+  Array of past contracts. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="cantidadHorasTrabajadasMes" type="float">
+  Total hours worked in the current billing period. Incremented after each successfully finished class via `trabajoDocente()`. Throws `ValoresNegativos` if the stored value ever drops below zero.
+</ResponseField>
+
+<ResponseField name="calificacion" type="float">
+  Running average rating across all rated classes the teacher has taught. Recalculated after each student rating via `calificacionDocente()`. Starts at `0`.
+</ResponseField>
+
+<ResponseField name="horasPrivadasAdicionalesMes" type="float">
+  Count of additional (above-minimum) private hours worked in the current month. Used for payroll calculations.
+</ResponseField>
+
+<ResponseField name="historialClasesImpartidas" type="Reserva[]">
+  Array of reservations this teacher has been assigned to teach. Entries are added via `asignarClase()` and removed via `cancelarReservaDocente()`. Starts as an empty array.
+</ResponseField>
+
+## Validation rules
+
+The constructor delegates to `Usuario` and additionally requires:
+
+| Exception | Condition |
+|---|---|
+| `ElementosVacios` | Any required field is empty, including `especialidad` |
+| `NombreNoValido` | Name fields shorter than 2 characters |
+| `CorreoNoValido` | Invalid email format |
+| `ValoresNegativos` | Negative numeric identity fields |
+| `LongitudNoValida` | `telefono` or `numeroDocumento` shorter than 5 characters |
+| `EstadoContratoDoc` | Attempting to assign a contract with status `FINALIZADO` via `setContrato()` |
+| `ValoresNegativos` | Setting `cantidadHorasTrabajadasMes` to a negative value |
+
+## Contract management
+
+When you call `asignarContrato()` on a `Docente` instance, the method:
+
+1. Finalizes the existing contract (if any) and moves it to `historialContratos`.
+2. Creates a new `Contrato` with the provided parameters.
+3. Sets `this.contrato` to the new contract.
+
+Calling `actualizarEstadoContrato(EstadoContrato.FINALIZADO)` also sets `this.contrato = null`, freeing the reference.
+
+## Rating calculation
+
+After a student calls `calificarClase()` on a `Reserva`, the reservation calls `calificacionDocente()` on the assigned teacher. This method iterates over all entries in `historialClasesImpartidas`, sums the `calificacionGeneral` of every reservation flagged as `calificada`, and divides by the count to produce the new average stored in `calificacion`.
+
+## File persistence
+
+- **Extension:** `.doce`
+- **Naming convention:** `<tipoDocumento first 2 chars><numeroDocumento>.doce`
+- **Example:** `CC11223344.doce`
+
+Serialization uses `copiarFicheroDocente(String dir)` via `ObjectOutputStream`.
+
+## Related pages
+
+- [Usuario](/reference/data-model/usuario) — parent class
+- [Contrato](/reference/data-model/contrato) — contract model
+- [Reserva](/reference/data-model/reserva) — reservation model
+- [AcademiaController](/reference/controller/academia-controller) — `crearDocente`, `eliminarDocente`, `actualizarDocente`, `asignarContrato`, `actualizarEstadoContratoDocente`

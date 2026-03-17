@@ -1,0 +1,115 @@
+---
+title: "Private classes"
+description: "How ClasePersonalizada works in NOUS Academy — student creation, membership credit requirements, and the informacionAdjunta field."
+---
+
+A private class (`ClasePersonalizada`) is a one-on-one session requested directly by a student. Unlike group classes, which are created by administrators and open to multiple participants, a private class is created by the student, immediately reserved for that student, and locked to a single participant.
+
+## Class definition
+
+`ClasePersonalizada` extends the abstract `Clase` base class and adds one field:
+
+| Field | Type | Description |
+|---|---|---|
+| `informacionAdjunta` | `String` | Optional free-text field for special instructions or context provided by the student |
+
+The code suffix is `PV` (privado), producing codes like `PV-001`, `PV-002`, and so on.
+
+<Note>
+  `informacionAdjunta` may be an empty string. It is the only field in the class hierarchy that is not required to have content.
+</Note>
+
+## How private classes differ from group classes
+
+<Tabs>
+  <Tab title="Private class (ClasePersonalizada)">
+    - Created by the **student** who will attend it
+    - Only **one student** can ever enroll
+    - Reservation becomes `LLENA` immediately after the student is added
+    - Cancelling the student's spot changes `estadoReserva` to `CANCELADA`
+    - Requires the student's membership to have available private class credits
+    - Code suffix: `PV`
+  </Tab>
+  <Tab title="Group class (ClaseGrupal)">
+    - Created by an **administrator**
+    - Up to `aforoMaximo` students can enroll
+    - Reservation becomes `LLENA` only when enrollment reaches `aforoMaximo`
+    - Does not consume membership private class credits
+    - Code suffix: `PB`
+  </Tab>
+</Tabs>
+
+## Creating a private class reservation
+
+Students create private class reservations by calling `crearUnaReservaPersonalizada` on the controller, passing the logged-in `Estudiante` object:
+
+```java
+controller.crearUnaReservaPersonalizada(
+    estudiante,          // Estudiante   — the logged-in student (required)
+    horaInicioEsperada,  // LocalDateTime — must be in the future
+    titulo,              // String        — class title (required)
+    descripcion,         // String        — full description (required)
+    tema,                // String        — subject area (required)
+    duracion,            // float         — duration in minutes (must be > 0)
+    info                 // String        — special instructions (may be empty)
+);
+```
+
+### Parameter validation
+
+| Parameter | Validation | Exception thrown |
+|---|---|---|
+| `horaInicioEsperada` | Must be in the future | `FechaInvalida` |
+| `titulo`, `descripcion`, `tema` | Must not be empty | `ElementosVacios` |
+| `duracion` | Must be `> 0` | `ValoresNegativos` |
+| Student's membership | Must have at least one private class credit remaining | `ClasesPrivadasNoSuficientes` |
+| Duplicate reservation | Student must not already have a reservation for this class | `ClaseYaReservada` |
+
+### What happens internally
+
+<Steps>
+  <Step title="Reservation created">
+    A new `Reserva` is constructed wrapping a `ClasePersonalizada`. The state starts as `PENDIENTE`.
+  </Step>
+  <Step title="Student automatically enrolled">
+    `reservarEstudiante(estudiante)` is called immediately on the new reservation. This triggers `estudiante.reservarClase(clase)`, which validates that the student has sufficient private class credits and that the class is not already reserved.
+  </Step>
+  <Step title="Reservation marked as full">
+    Because `ClasePersonalizada` accepts exactly one student, `estadoReserva` transitions to `LLENA` immediately.
+  </Step>
+  <Step title="Persisted to disk">
+    The reservation is appended to the controller's internal array and written to `datos/<PV-code>.res`.
+  </Step>
+</Steps>
+
+## Membership credit requirement
+
+Private class credits are configured when an administrator assigns a membership to a student. The student's membership tracks the number of private classes available. When `reservarEstudiante` is called, the student object validates that credits remain:
+
+```java
+estudiante.reservarClase(this.clase);  // throws ClasesPrivadasNoSuficientes if no credits
+```
+
+<Warning>
+  If a student has no private class credits in their active membership, they cannot create a private class reservation. An administrator must assign or update the student's membership before the student can book.
+</Warning>
+
+## Cancellation behavior
+
+Cancelling a student's spot on a private class has a more severe effect than on a group class:
+
+- The student is removed from `estudiantes[]`
+- `estadoReserva` is set to `CANCELADA`
+- The student's membership credits are adjusted via `estudiante.cancelarReserva(clase)`
+
+This means a cancelled private class reservation is permanently closed — no other student can enroll.
+
+## Timing and state
+
+The state machine for a private class follows the same path as a group class (`PENDIENTE` → teacher assigned → `EN_CURSO` → `EXITOSA`/`PREMATURA`), with these differences:
+
+- There is no `aforoMinimo` check at start time because there is always exactly one student enrolled
+- The reservation is `LLENA` from creation, so no additional enrollment is possible
+- Cancelling the student moves the state directly to `CANCELADA`, bypassing the normal completion flow
+
+See [Reservations](/features/classes/reservations) for the complete lifecycle documentation.

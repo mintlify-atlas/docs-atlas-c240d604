@@ -1,0 +1,205 @@
+---
+title: "Reservations"
+description: "The complete Reserva lifecycle in NOUS Academy — creation, teacher assignment, enrollment, start, finish, rating, and cancellation."
+---
+
+A `Reserva` is the scheduling wrapper that surrounds every `Clase` in NOUS Academy. You never interact with a class directly; all operations go through the reservation. The `Reserva` object manages timestamps, the teacher, the student list, the current state, and ratings.
+
+## Reservation fields
+
+| Field | Type | Description |
+|---|---|---|
+| `clase` | `Clase` | The underlying `ClaseGrupal` or `ClasePersonalizada` |
+| `horaInicioEsperada` | `LocalDateTime` | Scheduled start time |
+| `horaCierreEsperada` | `LocalDateTime` | Scheduled end time (`horaInicioEsperada + duracion`) |
+| `horaInicioReal` | `LocalDateTime` | Actual start time (set when teacher starts the class) |
+| `horaCierreReal` | `LocalDateTime` | Actual end time (set when teacher finishes the class) |
+| `duracionReal` | `float` | Actual duration in minutes |
+| `docente` | `Docente` | Assigned teacher (`null` until assigned) |
+| `estadoDocente` | `EstadoDocente` | Teacher assignment state |
+| `estudiantes` | `Estudiante[]` | Students enrolled in the reservation |
+| `asistentes` | `Estudiante[]` | Students who joined the live session |
+| `estadoReserva` | `EstadoReserva` | Current reservation state |
+| `calificacionIndividual` | `float[]` | Per-student ratings (1–5) |
+| `calificacionGeneral` | `float` | Average of all individual ratings |
+| `calificada` | `boolean` | Whether at least one rating has been submitted |
+
+The reservation's code is always the same as the underlying class code. You can retrieve it with `reserva.getCodigo()`.
+
+## Reservation states
+
+### EstadoReserva
+
+| State | Meaning |
+|---|---|
+| `PENDIENTE` | Reservation created; no teacher assigned yet or class not yet started |
+| `EN_CURSO` | Class is currently in progress (teacher has started it) |
+| `LLENA` | Maximum enrollment reached; no additional students can join |
+| `EXITOSA` | Class completed normally (teacher finished within the allowed time window) |
+| `PREMATURA` | Teacher ended the class more than 25 minutes before the scheduled duration |
+| `TARDE` | Teacher started the class more than 10 minutes after `horaInicioEsperada` |
+| `CANCELADA` | Reservation was cancelled by an administrator or by the student (private classes only) |
+| `SANCIONADA` | Reserved for future penalty workflows |
+
+### EstadoDocente
+
+| State | Meaning |
+|---|---|
+| `EN_ESPERA` | No teacher assigned (set after a teacher is removed) |
+| `ACEPTADA` | A teacher has been assigned to this reservation |
+| `DENEGADA` | Teacher assignment was denied |
+
+## Full reservation lifecycle
+
+<Steps>
+  <Step title="Create the reservation">
+    **Administrator** calls `crearUnaReservaGrupal` to create a group class reservation, or a **student** calls `crearUnaReservaPersonalizada` to create a private class reservation.
+
+    Both methods validate that `horaInicioEsperada` is in the future, that all required string fields are non-empty, and that numeric values are non-negative. The reservation starts in state `PENDIENTE`.
+
+    ```java
+    // Group class — administrator
+    controller.crearUnaReservaGrupal(
+        horaInicioEsperada, titulo, descripcion, tema, duracion, aforoMin, aforoMax
+    );
+
+    // Private class — student
+    controller.crearUnaReservaPersonalizada(
+        estudiante, horaInicioEsperada, titulo, descripcion, tema, duracion, info
+    );
+    ```
+  </Step>
+  <Step title="Assign a teacher">
+    **Administrator** calls `asignarClase`, passing the teacher's document type, document number, and the reservation code.
+
+    ```java
+    controller.asignarClase(tipoDocumento, numeroDocumento, codigoReserva);
+    ```
+
+    This sets `docente` on the reservation, calls `docente.asignarClase(reserva)`, and sets `estadoDocente = ACEPTADA`.
+
+    <Note>
+      You can also remove a teacher using `cancelarDocente`. This clears the `docente` field and sets `estadoDocente = EN_ESPERA`.
+    </Note>
+  </Step>
+  <Step title="Students enroll">
+    **Students** call `reservarClase` to join a group class reservation. For private classes this step happens automatically at creation.
+
+    ```java
+    controller.reservarClase(estudiante, codigoReserva);
+    ```
+
+    Enrollment validates:
+    - The reservation is not already `LLENA`
+    - For private classes: the student has sufficient private class credits
+    - The student has not already reserved this class
+
+    When enrollment hits `aforoMaximo` (group) or the first student (private), `estadoReserva` changes to `LLENA`.
+  </Step>
+  <Step title="Teacher starts the class">
+    **Teacher (docente)** calls `inciarReserva` to begin the session.
+
+    ```java
+    controller.inciarReserva(docente, codigoReserva);
+    ```
+
+    Validations at start time:
+    - Current time must be within the window: `horaInicioEsperada - 5 min` to `horaInicioEsperada + 10 min`
+    - For group classes: `estudiantes.length >= aforoMinimo`, otherwise `NoSuficienteAforo` is thrown
+    - If the teacher is more than 10 minutes late, `estadoReserva` is set to `TARDE` and `DocenteRetardado` is thrown
+
+    On success, `horaInicioReal` is recorded and `estadoReserva` becomes `EN_CURSO`.
+  </Step>
+  <Step title="Students join the live session">
+    **Students** call `unirseReserva` to mark their actual attendance (adds them to `asistentes[]`).
+
+    ```java
+    controller.unirseReserva(estudiante, codigoReserva);
+    ```
+
+    The student must already be in `estudiantes[]` and the reservation must be `EN_CURSO`.
+  </Step>
+  <Step title="Teacher finishes the class">
+    **Teacher** calls `finalizarReserva` to end the session.
+
+    ```java
+    controller.finalizarReserva(docente, codigoReserva);
+    ```
+
+    - `horaCierreReal` is recorded and `duracionReal` is computed in minutes
+    - If `duracionReal < clase.getDuracion() - 25`, the state becomes `PREMATURA` and `FinalizacionPrematuraDeReserva` is thrown
+    - Otherwise, if the state is not already `TARDE` or `PREMATURA`, it becomes `EXITOSA`
+    - All enrolled students are notified via `estudiante.claseFinalizada()`
+    - If the final state is `EXITOSA`, the teacher's work record is updated via `docente.trabajoDocente(reserva)`
+  </Step>
+  <Step title="Students rate the class">
+    **Students who attended** (in `asistentes[]`) call `calificarReserva` to submit a rating.
+
+    ```java
+    controller.calificarReserva(estudiante, calificacion, codigoReserva);
+    ```
+
+    - `calificacion` must be a `float` between `1.0` and `5.0`, inclusive. Values outside this range throw `CalificacionInvalida`.
+    - The student must be in `asistentes[]`, otherwise `EstudianteNoEnlistadoEnReserva` is thrown
+    - The reservation must be in state `EXITOSA`, `PREMATURA`, or `TARDE`
+    - Each submitted rating is appended to `calificacionIndividual[]` and `calificacionGeneral` is recomputed as the average
+    - The teacher's rating counter is incremented via `docente.calificacionDocente()`
+  </Step>
+</Steps>
+
+## Rating system
+
+Ratings are collected per student and aggregated into a single score:
+
+```java
+// Each student's rating is stored in the array
+calificacionIndividual[]  // e.g., [4.0, 5.0, 3.5]
+
+// General rating is the arithmetic mean
+calificacionGeneral = sum(calificacionIndividual) / calificacionIndividual.length
+// e.g., (4.0 + 5.0 + 3.5) / 3 = 4.17
+```
+
+The `calificada` flag is set to `true` after the first rating is submitted.
+
+## Cancellation and deletion
+
+### Student cancellation (`cancelarResrva`)
+
+A student can cancel their enrollment up to 30 minutes before `horaInicioEsperada`:
+
+```java
+controller.cancelarResrva(estudiante, codigoReserva);
+```
+
+- The student is removed from `estudiantes[]` and `asistentes[]`
+- For private classes, `estadoReserva` becomes `CANCELADA`
+- The student's class record is updated via `estudiante.cancelarReserva(clase)` and `estudiante.claseFinalizada()`
+- Attempting to cancel within 30 minutes of start throws `ClaseEnEstadoNoCancelar`
+
+### Administrative deletion (`eliminarReserva`)
+
+An administrator can delete a reservation at any time:
+
+```java
+controller.eliminarReserva(codigoReserva);
+```
+
+- `cancelacionAdministrativa()` is called, which sets `estadoReserva = CANCELADA` and calls `claseFinalizada()` for all enrolled students
+- The `.res` file is deleted from disk
+- The reservation is removed from the controller's internal array
+
+<Warning>
+  Administrative deletion is irreversible. All student enrollment records are finalized and the `.res` file is removed permanently.
+</Warning>
+
+## File persistence
+
+Every reservation is serialized to a binary file in the `datos/` directory:
+
+```text
+datos/PB-001.res   ← group class reservation
+datos/PV-001.res   ← private class reservation
+```
+
+The file is written (overwritten) every time the reservation state changes — on creation, enrollment, teacher assignment, start, finish, rating, and cancellation.

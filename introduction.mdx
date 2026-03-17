@@ -1,0 +1,71 @@
+---
+title: "Introduction"
+description: "NOUS Academy — a comprehensive private academy management platform for administrators, students, and teachers."
+---
+
+# Welcome to NOUS Academy
+
+NOUS Academy is a Java desktop application designed to manage all operational aspects of a private academy. It provides a role-based interface for three types of users — **administrators**, **students**, and **teachers** — each with their own dedicated workflow and permissions.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get the application running and set up your first users in minutes.
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the system is structured and how components interact.
+  </Card>
+  <Card title="User Management" icon="users" href="/features/users/administrators">
+    Create and manage administrators, students, and teachers.
+  </Card>
+  <Card title="Class Reservations" icon="calendar" href="/features/classes/reservations">
+    Schedule, assign, start, finish, and rate classes.
+  </Card>
+</CardGroup>
+
+## What NOUS Academy manages
+
+NOUS Academy covers the full lifecycle of a private academy's operations:
+
+<AccordionGroup>
+  <Accordion title="Users">
+    Three distinct roles exist in the system: **administrators** who manage the platform, **students** who enroll in classes and groups, and **teachers (docentes)** who deliver classes and hold contracts.
+  </Accordion>
+  <Accordion title="Classes">
+    Two class types are supported: **group classes** (ClaseGrupal) with a minimum and maximum attendance capacity, and **private classes** (ClasePersonalizada) reserved one-on-one. Both go through a lifecycle of scheduling → assigning a teacher → starting → finishing → rating.
+  </Accordion>
+  <Accordion title="Groups">
+    Students and teachers can be organized into **groups (Grupos)**. Groups hold their own set of class reservations and are the primary unit for scheduling group sessions.
+  </Accordion>
+  <Accordion title="Memberships">
+    Students require an active **membership (Membresía)** to book private classes. Three predefined tiers exist — Basic, Intensive, and Premium — as well as a fully customizable plan.
+  </Accordion>
+  <Accordion title="Teacher contracts">
+    Teachers are hired through **contracts (Contratos)** specifying salary, minimum hours, additional-hour rates, and duration. Contract status transitions through Active → Suspended → Finalized.
+  </Accordion>
+  <Accordion title="Academy finances">
+    The system tracks the academy's **capital** in real time: membership payments increase it, teacher salaries decrease it. Administrators can inject or withdraw capital directly.
+  </Accordion>
+</AccordionGroup>
+
+## Role overview
+
+| Role | Spanish term | Key capabilities |
+|---|---|---|
+| Administrator | `ADMINISTRADOR` | Manage all users, groups, reservations, memberships, contracts, and capital |
+| Student | `ESTUDIANTE` | Join groups, book/cancel private classes, join active sessions, rate completed classes |
+| Teacher | `DOCENTE` | View assigned classes, start and finish sessions |
+
+## Data persistence
+
+All entities are serialized to binary files stored in the `datos/` directory:
+
+- `.usr` — administrator user records
+- `.est` — student records (including membership data)
+- `.doce` — teacher records (including contract data)
+- `.grp` — group records
+- `.res` — reservation records
+- `NousAcademy.txt` — academy configuration (NIT, name, phone, email, capital)
+
+<Note>
+  Data is loaded at startup by the boot classes and written back to disk on every state change, ensuring persistence without an external database.
+</Note>

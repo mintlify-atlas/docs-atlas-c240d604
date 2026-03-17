@@ -1,0 +1,81 @@
+---
+title: "Estudiante"
+description: "Student user model that extends Usuario with membership, class history, and group membership."
+---
+
+`Estudiante` extends [`Usuario`](/reference/data-model/usuario) and represents an enrolled student. On creation, it sets the role to `ESTUDIANTE` and initializes empty arrays for membership history, class history, and groups. Students must hold an active [`Membresia`](/reference/data-model/membresia) to book private classes.
+
+## Inherited fields
+
+`Estudiante` inherits all fields from `Usuario`: `nombre`, `apellidos`, `telefono`, `correo`, `tipoDocumento`, `numeroDocumento`, `usuario`, `contrasena`, and `tipoUsuario` (always `ESTUDIANTE`).
+
+## Additional fields
+
+<ResponseField name="membresia" type="Membresia">
+  The student's currently active membership. `null` until a membership is assigned. Replaced (and moved to `historialMembresias`) each time a new membership is assigned.
+</ResponseField>
+
+<ResponseField name="historialMembresias" type="Membresia[]">
+  Array of past memberships. Each time a new membership is assigned, the old one is set to `CANCELADA` and appended here. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="historialClases" type="Clase[]">
+  Array of classes (both group and private) the student has registered for. Entries are added when the student books a class and removed if the reservation is cancelled. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="clasesPrivadasRestantes" type="int">
+  Counter of private classes still available under the current membership. Decremented by 1 each time the student books a `ClasePersonalizada`. Resets to the new membership's `clasesPrivadas` count when a new membership is assigned.
+</ResponseField>
+
+<ResponseField name="grupos" type="Grupo[]">
+  Groups the student belongs to. Limited to a maximum of 4 groups. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="cantidadDeGrupos" type="int">
+  Current count of groups. Kept in sync with `grupos.length`.
+</ResponseField>
+
+<ResponseField name="reservado" type="boolean">
+  `true` while the student is registered for an active (not yet finished) class. Prevents double-booking. Set to `false` when the class ends, is cancelled, or finishes prematurely.
+</ResponseField>
+
+## Validation rules
+
+The constructor delegates validation to `Usuario`. In addition:
+
+| Exception | Condition |
+|---|---|
+| `ElementosVacios` | Any required string field is empty (inherited from `Usuario`) |
+| `NombreNoValido` | `nombre` or `apellidos` is shorter than 2 characters |
+| `CorreoNoValido` | `correo` does not meet format requirements |
+| `ValoresNegativos` | `telefono` or `numeroDocumento` is negative |
+| `LongitudNoValida` | `telefono` or `numeroDocumento` is too short |
+| `CantidadGruposExcedida` | Joining a 5th group via `addGrupo()` |
+| `ClaseYaReservada` | Booking a class while `reservado == true` |
+| `ClasesPrivadasNoSuficientes` | Booking a private class with `clasesPrivadasRestantes == 0` |
+
+## Membership assignment
+
+`Estudiante` provides two `asignarMembresia` overloads:
+
+**Defined membership** — pass a predefined `TipoMembresia` (e.g., `BASICA`, `INTENSIVA`, `PREMIUM`) plus start date and duration in months. Pricing and private-class quota are set by the system.
+
+**Custom membership** — pass an explicit price, private-class count, and duration. Sets `tipoMembresia = PERSONALIZADA`.
+
+In both cases, if a membership already exists it is cancelled and archived before the new one is created.
+
+## File persistence
+
+- **Extension:** `.est`
+- **Naming convention:** `<tipoDocumento first 2 chars><numeroDocumento>.est`
+- **Example:** `CC87654321.est`
+
+Serialization uses `copiarFicheroEstudiante(String dir)` via `ObjectOutputStream`.
+
+## Related pages
+
+- [Usuario](/reference/data-model/usuario) — parent class
+- [Membresia](/reference/data-model/membresia) — membership model
+- [Grupo](/reference/data-model/grupo) — group model
+- [Reserva](/reference/data-model/reserva) — reservation model
+- [AcademiaController](/reference/controller/academia-controller) — `crearEstudiante`, `eliminarEstudiante`, `actualizarEstudiante`, `asignarMembresiaDefinida`, `asignarMembresiaPersonalizada`

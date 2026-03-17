@@ -1,0 +1,171 @@
+---
+title: "Groups"
+description: "How Grupo works in NOUS Academy — organizing students, teachers, and reservations, and the admin and student operations available."
+---
+
+A `Grupo` is an organizational container that bundles students (`Estudiante[]`), teachers (`Docente[]`), and reservations (`Reserva[]`) together. Groups give administrators a way to manage cohorts and associate specific class schedules with a named audience.
+
+## Group fields
+
+| Field | Type | Description |
+|---|---|---|
+| `codigo` | `String` | Auto-generated group code (e.g., `GRUP001`, `GRUP002`) |
+| `nombre` | `String` | Group name (required) |
+| `descripcion` | `String` | Group description (required) |
+| `estudiantes` | `Estudiante[]` | Students who have joined the group |
+| `docentes` | `Docente[]` | Teachers assigned to the group |
+| `reservas` | `Reserva[]` | Class reservations associated with the group |
+
+## Code generation
+
+Group codes are generated using the prefix `GRUP` and a zero-padded three-digit counter:
+
+```java
+"GRUP" + String.format("%03d", serial)  // → GRUP001, GRUP002, GRUP003, …
+```
+
+The counter increments each time a new group is created. As with class codes, this counter is in-memory and resets on JVM restart.
+
+## Administrator operations
+
+### Create a group
+
+```java
+controller.crearGrupo(nombre, descripcion);
+```
+
+Both `nombre` and `descripcion` are required. Passing an empty string for either field throws `ElementosVacios`. The new group is persisted to `datos/<codigo>.grp`.
+
+### Update a group
+
+```java
+controller.actualizarGrupo(codigo, nombre, descripcion);
+```
+
+Only non-empty strings are applied. You can update `nombre`, `descripcion`, or both. Pass an empty string for any field you do not want to change. The `.grp` file is updated on disk.
+
+### Delete a group
+
+```java
+controller.eliminarGrupo(codigo);
+```
+
+Deletion calls `eliminacionAdministrativa()` before removing the group record, which removes all students from the group (calling `estudiante.eliminarGrupo(this)` for each). The `.grp` file is deleted from disk.
+
+<Warning>
+  Deleting a group removes all students from it. Students' own group membership lists are updated accordingly. Associated reservations are **not** deleted — they continue to exist independently in the system.
+</Warning>
+
+### Add a teacher to a group
+
+```java
+controller.añadirDocente(tipoDocumento, numeroDocumento, codigoGrupo);
+```
+
+The teacher is appended to the group's `docentes[]` array. Both the teacher's `.doce` file and the group's `.grp` file are updated.
+
+### Remove a teacher from a group
+
+```java
+controller.eliminarDocente(tipoDocumento, numeroDocumento, codigoGrupo);
+```
+
+The teacher is removed from `docentes[]`. Throws `DocenteNoEnGrupo` if the teacher is not in the group.
+
+### Add a reservation to a group
+
+```java
+controller.anadirReserva(codigoGrupo, codigoReserva);
+```
+
+The reservation is appended to the group's `reservas[]` array. Both the reservation's `.res` file and the group's `.grp` file are updated.
+
+### Remove a reservation from a group
+
+```java
+controller.eliminarReserva(codigoGrupo, codigoReserva);
+```
+
+The reservation is removed from `reservas[]`. Throws `ReservaNoEncontradaEnGrupo` if the reservation is not in the group. Note that this overload of `eliminarReserva` takes two parameters (group code + reservation code), distinguishing it from the single-parameter form that deletes the reservation entirely.
+
+## Student operations
+
+### Join a group
+
+Students join groups by providing the group code:
+
+```java
+controller.entrarGrupo(estudiante, codigoGrupo);
+```
+
+Internally this calls `grupo.anadirEstudiante(estudiante)`, which:
+
+1. Checks that the student is not already in the group (throws `Duplicados` if they are)
+2. Calls `estudiante.addGrupo(this)`, which increments the student's group count and enforces the maximum groups limit
+3. Appends the student to `grupo.estudiantes[]`
+
+Both the student's `.est` file and the group's `.grp` file are updated on disk.
+
+<Warning>
+  Each student has a maximum number of groups they can belong to, defined by their membership or student profile. Exceeding this limit throws `CantidadGruposExcedida`. The student cannot join any more groups until they leave one.
+</Warning>
+
+### Leave a group
+
+```java
+controller.salirseGrupo(estudiante, codigoGrupo);
+```
+
+This calls `grupo.eliminarEstudiante(estudiante)`, which:
+
+1. Locates the student in `estudiantes[]` (throws `EstudianteNoEnGrupo` if not found)
+2. Calls `estudiante.eliminarGrupo(this)` to update the student's group list
+3. Removes the student from `grupo.estudiantes[]`
+
+Both files are updated on disk.
+
+## Administrative deletion in detail
+
+The `eliminacionAdministrativa` method is called automatically by `eliminarGrupo` before the group record is removed:
+
+```java
+public void eliminacionAdministrativa() throws GrupoNoEncontrado {
+    for (Estudiante e : estudiantes) {
+        e.eliminarGrupo(this);
+    }
+}
+```
+
+This iterates over every student in the group and calls `eliminarGrupo` on each, ensuring no student retains a stale reference to a deleted group.
+
+## File persistence
+
+Groups are serialized to binary files in the `datos/` directory:
+
+```text
+datos/GRUP001.grp
+datos/GRUP002.grp
+```
+
+The `.grp` file is written (overwritten) on every change: creation, update, adding/removing members or reservations.
+
+<Note>
+  Group files store the complete `Grupo` object, including references to the `Estudiante[]`, `Docente[]`, and `Reserva[]` arrays. Because Java serialization follows object references, these linked objects are also serialized into the `.grp` file.
+</Note>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Classes overview" icon="chalkboard" href="/features/classes/overview">
+    Understand the Clase hierarchy and how ClaseGrupal and ClasePersonalizada differ.
+  </Card>
+  <Card title="Reservations" icon="calendar" href="/features/classes/reservations">
+    Full lifecycle for scheduling, assigning, starting, finishing, and rating classes.
+  </Card>
+  <Card title="Students" icon="user-graduate" href="/features/users/students">
+    Student accounts, membership requirements, and group membership limits.
+  </Card>
+  <Card title="Teachers" icon="person-chalkboard" href="/features/users/teachers">
+    Teacher accounts, contracts, and how teachers are assigned to classes.
+  </Card>
+</CardGroup>

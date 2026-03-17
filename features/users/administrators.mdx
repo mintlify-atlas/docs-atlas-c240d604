@@ -1,0 +1,189 @@
+---
+title: "Administrators"
+description: "Manage administrator accounts in NOUS Academy — the users who operate the platform and control all other entities."
+---
+
+Administrators hold the `ADMINISTRADOR` role and have full access to the **Admin Panel**. They can create and manage all user types, schedule classes, assign contracts, manage memberships, operate groups, and control academy capital. An administrator is represented by the `Usuario` class with `tipoUsuario` set to `TipoUsuario.ADMINISTRADOR`.
+
+<Note>
+  Every user created through `crearUsuario` is automatically assigned the `ADMINISTRADOR` role. Students and teachers are created through their own dedicated methods and get different roles.
+</Note>
+
+## What administrators can do
+
+<CardGroup cols={2}>
+  <Card title="User management" icon="users">
+    Create, update, and delete administrator accounts. Search for any administrator by document type and number.
+  </Card>
+  <Card title="Student management" icon="graduation-cap">
+    Register students, update their profiles, assign memberships, and remove them from the system.
+  </Card>
+  <Card title="Teacher management" icon="chalkboard-teacher">
+    Hire teachers, issue contracts, assign classes to teachers, and cancel teacher assignments.
+  </Card>
+  <Card title="Finance control" icon="coins">
+    Inject or withdraw capital from the academy's balance. Capital is updated on every membership and contract transaction.
+  </Card>
+  <Card title="Class & reservation control" icon="calendar">
+    Create group and private class reservations, assign teachers, and manage their full lifecycle.
+  </Card>
+  <Card title="Group management" icon="people-group">
+    Create groups, add students and teachers to groups, and link reservations to groups.
+  </Card>
+</CardGroup>
+
+## Administrator fields
+
+Administrators inherit all fields from the `Usuario` base class. No additional fields are added.
+
+| Field | Type | Description |
+|---|---|---|
+| `nombre` | `String` | First name |
+| `apellidos` | `String` | Last name(s) |
+| `telefono` | `String` | Phone number (numeric, ≥ 5 digits) |
+| `correo` | `String` | Email address (must end with `@nousacademy.co`) |
+| `tipoDocumento` | `TipoDocumento` | Document type — `CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, or `NIT` |
+| `numeroDocumento` | `String` | Document number (numeric, ≥ 5 digits) |
+| `usuario` | `String` | Login username |
+| `contrasena` | `String` | Login password |
+| `tipoUsuario` | `TipoUsuario` | Always `ADMINISTRADOR` for this role |
+
+## Validation rules
+
+All fields are validated in the `Usuario` constructor before the object is created. Any violation throws a typed exception.
+
+| Rule | Exception thrown |
+|---|---|
+| Any field is empty or blank | `ElementosVacios` |
+| `nombre` or `apellidos` is fewer than 2 characters | `NombreNoValido` |
+| `correo` does not contain `@` or does not end with `nousacademy.co` | `CorreoNoValido` |
+| `telefono` or `numeroDocumento` parses to a negative number | `ValoresNegativos` |
+| `telefono` or `numeroDocumento` has fewer than 5 characters | `LongitudNoValida` |
+| `tipoDocumento` + `numeroDocumento` or `usuario` already exists | `Duplicados` |
+
+<Warning>
+  Email validation requires the full domain `nousacademy.co`. An address like `user@mail.nousacademy.co` is accepted, but `user@external.com` is rejected.
+</Warning>
+
+## Controller methods
+
+All administrator operations go through `AcademiaController`.
+
+### `crearUsuario`
+
+```java
+public void crearUsuario(
+    String nombre, String apellidos, String telefono,
+    String correo, TipoDocumento tipoDocumento, String numeroDocumento,
+    String usuario, String contrasena
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+Creates a new administrator, checks for duplicate document and username, and persists the record to disk.
+
+### `eliminarUsuario`
+
+```java
+public void eliminarUsuario(
+    TipoDocumento tipoDocumento, String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Locates the administrator by document type and number, deletes the `.usr` file from disk, and removes the entry from the in-memory array.
+
+### `actualizarUsuario`
+
+```java
+public void actualizarUsuario(
+    TipoDocumento originalTD, String originalND,
+    String nombre, String apellidos, String telefono,
+    String correo, TipoDocumento tipoDocumento, String numeroDocumento
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos
+```
+
+Updates any subset of fields on an existing administrator. Only non-empty values are applied. After updating, the old `.usr` file is deleted and a new one is written using the updated document identifiers.
+
+<Tip>
+  You can update just one field by leaving all others blank. The controller skips any empty string, so partial updates are safe.
+</Tip>
+
+### `leerUsuarios`
+
+```java
+public Usuario[] leerUsuarios()
+```
+
+Returns a copy of the current in-memory administrator array. The **Usuarios Administradores** tab calls this on every refresh.
+
+### `buscarUnUsuario`
+
+```java
+public Usuario buscarUnUsuario(
+    TipoDocumento tipoDocumento, String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Internal lookup used by update and delete operations. Throws `ElementoNoExistente` if no match is found.
+
+## File persistence
+
+Administrator records are serialized with Java's `ObjectOutputStream` and stored as binary files.
+
+| Aspect | Detail |
+|---|---|
+| Extension | `.usr` |
+| File name pattern | `<doc_prefix><numeroDocumento>.usr` |
+| Storage directory | `datos/` |
+| Serialization method | `copiarFicheroUsuario(String dir)` on `Usuario` |
+
+The document prefix is the first two characters of the `TipoDocumento` enum value name:
+
+```text
+CC12345678.usr        → Cédula de ciudadanía
+TA98765432.usr        → Tarjeta de identidad
+CE11223344.usr        → Cédula de extranjería
+PA00112233.usr        → Pasaporte
+NI90000001.usr        → NIT
+```
+
+<Note>
+  When you update a document number or type, the old file is deleted and a new file is created under the updated name. This keeps the file system consistent with the in-memory state.
+</Note>
+
+## Creating an administrator
+
+<Steps>
+  <Step title="Open the Administrators tab">
+    Log in as an existing administrator. In the **Admin Panel**, click the **Usuarios Administradores** tab.
+  </Step>
+  <Step title="Fill in the creation form">
+    Enter values for all required fields in the **Crear** section:
+
+    | Field | Requirement |
+    |---|---|
+    | **Nombre** | At least 2 characters |
+    | **Apellidos** | At least 2 characters |
+    | **Teléfono** | Numeric, at least 5 digits |
+    | **Correo** | Must end with `@nousacademy.co` |
+    | **Tipo doc.** | Select from the dropdown |
+    | **Núm. doc.** | Numeric, at least 5 digits |
+    | **Usuario** | Unique username |
+    | **Contraseña** | Non-empty password |
+  </Step>
+  <Step title="Click Crear administrador">
+    The system validates all fields, checks for duplicates, creates the `Usuario` object, appends it to the in-memory array, and writes the `.usr` file to `datos/`.
+  </Step>
+  <Step title="Verify the new record">
+    Click **Refrescar** to reload the administrator table. The new entry should appear with the correct name, username, document, email, and phone.
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="Students" icon="graduation-cap" href="/features/users/students">
+    Learn how to register and manage student accounts.
+  </Card>
+  <Card title="Teachers" icon="chalkboard-teacher" href="/features/users/teachers">
+    Learn how to hire teachers and manage their contracts.
+  </Card>
+</CardGroup>

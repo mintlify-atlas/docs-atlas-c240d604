@@ -1,0 +1,91 @@
+---
+title: "Usuario"
+description: "Base user model representing an administrator account in NOUS Academy."
+---
+
+`Usuario` is the root class for all users in the system. It stores identity, contact, and authentication data. When you create a `Usuario` directly, the account receives the `ADMINISTRADOR` role automatically. `Estudiante` and `Docente` extend this class and override the role at construction time.
+
+## Fields
+
+<ResponseField name="nombre" type="String" required>
+  First name of the user. Must be at least 2 characters.
+</ResponseField>
+
+<ResponseField name="apellidos" type="String" required>
+  Last name(s) of the user. Must be at least 2 characters.
+</ResponseField>
+
+<ResponseField name="telefono" type="String" required>
+  Phone number stored as a string. Must be non-negative when parsed as a float and at least 5 digits long.
+</ResponseField>
+
+<ResponseField name="correo" type="String" required>
+  Email address. Must contain `@` and end with `nousacademy.co`.
+</ResponseField>
+
+<ResponseField name="tipoDocumento" type="TipoDocumento" required>
+  Document type used as part of the unique identity key. See the [TipoDocumento](#tipodocumento-values) table below.
+</ResponseField>
+
+<ResponseField name="numeroDocumento" type="String" required>
+  Document number. Must be non-negative when parsed as a float and at least 5 characters long.
+</ResponseField>
+
+<ResponseField name="usuario" type="String" required>
+  Login username. Must be unique across all users of the same type.
+</ResponseField>
+
+<ResponseField name="contrasena" type="String" required>
+  Login password stored in plain text.
+</ResponseField>
+
+<ResponseField name="tipoUsuario" type="TipoUsuario">
+  Role assigned to this account. Defaults to `ADMINISTRADOR` for direct `Usuario` instances. Read-only after creation unless explicitly updated via `actualizarTipoUsuario()`.
+</ResponseField>
+
+## TipoDocumento values
+
+| Value | Description |
+|---|---|
+| `CC` | Cédula de Ciudadanía |
+| `TARJETA_IDENTIDAD` | Tarjeta de Identidad |
+| `CE` | Cédula de Extranjería |
+| `PASAPORTE` | Passport |
+| `NIT` | Número de Identificación Tributaria |
+
+## TipoUsuario values
+
+| Value | Assigned to |
+|---|---|
+| `ADMINISTRADOR` | `Usuario` instances created directly |
+| `ESTUDIANTE` | `Estudiante` instances |
+| `DOCENTE` | `Docente` instances |
+
+## Validation rules
+
+The constructor throws the following checked exceptions when validation fails:
+
+| Exception | Condition |
+|---|---|
+| `ElementosVacios` | Any required string field is empty |
+| `NombreNoValido` | `nombre` or `apellidos` is shorter than 2 characters |
+| `CorreoNoValido` | `correo` does not contain `@` or does not end with `nousacademy.co` |
+| `ValoresNegativos` | `telefono` or `numeroDocumento` parses to a negative number |
+| `LongitudNoValida` | `telefono` or `numeroDocumento` has fewer than 5 characters |
+
+## File persistence
+
+When you create or update an administrator through `AcademiaController`, the object is serialized to a binary file in the `datos/` directory.
+
+- **Extension:** `.usr`
+- **Naming convention:** `<tipoDocumento first 2 chars><numeroDocumento>.usr`
+- **Example:** A user with `tipoDocumento = CC` and `numeroDocumento = 12345678` writes to `CC12345678.usr`
+
+The method `copiarFicheroUsuario(String dir)` handles serialization via `ObjectOutputStream`.
+
+## Related pages
+
+- [Estudiante](/reference/data-model/estudiante) — extends `Usuario` with membership and class history
+- [Docente](/reference/data-model/docente) — extends `Usuario` with contract and teaching history
+- [AcademiaController](/reference/controller/academia-controller) — `crearUsuario`, `eliminarUsuario`, `actualizarUsuario`
+- [Exceptions overview](/reference/exceptions/overview)

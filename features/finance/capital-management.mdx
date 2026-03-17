@@ -1,0 +1,180 @@
+---
+title: "Capital management"
+description: "Track how the academy's capital changes through memberships, contracts, and direct injections or withdrawals."
+---
+
+The academy's financial balance is stored in the `capital` field of `AcademiaController`. Every operation that creates a financial obligation or brings in revenue updates this field immediately and writes the new value to `datos/NousAcademy.txt`.
+
+## How capital is stored
+
+`capital` is declared as a `double` on `AcademiaController`:
+
+```java
+private double capital;
+```
+
+The constructor accepts an initial capital value when the academy is first loaded:
+
+```java
+public AcademiaController(String nit, String nombre, String telefono,
+                           String correo, double capital) {
+    this.capital = capital;
+    // ...
+}
+```
+
+On every state change that affects `capital`, the controller rewrites the entire `NousAcademy.txt` file. Capital appears on **line 5** of that file:
+
+```text datos/NousAcademy.txt
+5422994301
+NOUS ACADEMY
+3001234567
+contact@nousacademy.co
+15000000.0
+```
+
+## Capital-affecting operations
+
+| Operation | Method | Impact direction | Amount |
+|---|---|---|---|
+| Assign predefined membership | `asignarMembresiaDefinida` | Increase (+) | `precio` = plan rate × months |
+| Assign custom membership | `asignarMembresiaPersonalizada` | Increase (+) | Custom `precio` |
+| Assign teacher contract | `asignarContrato` | Decrease (−) | `salarioBase × meses` |
+| Inject capital | `inyectarCapital` | Increase (+) | Supplied `capital` argument |
+| Withdraw capital | `retirarCapital` | Decrease (−) | Supplied `capital` argument |
+
+### Membership revenue
+
+When a membership is assigned, `impactoComercial()` returns the total `precio` — always a positive number — and it is added to `this.capital`:
+
+```java
+e.asignarMembresia(tipo, fechaInicio, meses);
+this.capital += e.getMembresia().impactoComercial();
+```
+
+For predefined tiers the price is fixed:
+
+| Tier | Formula | 1 month | 3 months | 6 months |
+|---|---|---|---|---|
+| `BASICA` | $1,200,000 × months | $1,200,000 | $3,600,000 | $7,200,000 |
+| `INTENSIVA` | $2,200,000 × months | $2,200,000 | $6,600,000 | $13,200,000 |
+| `PREMIUM` | $3,500,000 × months | $3,500,000 | $10,500,000 | $21,000,000 |
+
+### Contract costs
+
+When a contract is assigned, `impactoComercial()` returns `-salarioBase × meses` — always a negative number — and it is added to `this.capital`, reducing the balance:
+
+```java
+d.asignarContrato(fechaInicio, salarioBase, horasMinimas, costoHoraA, meses);
+this.capital += d.getContrato().impactoComercial();
+```
+
+Before creating the contract, the controller guards against insufficient funds:
+
+```java
+if (this.capital < salarioBase * meses) {
+    throw new DineroInsuficienteParaContratar();
+}
+```
+
+<Warning>
+  Always verify that the academy has enough capital before hiring a new teacher. If `capital < salarioBase * meses`, the assignment is rejected with `DineroInsuficienteParaContratar`. Use `inyectarCapital` to top up the balance first.
+</Warning>
+
+### Manual capital injection
+
+```java
+void inyectarCapital(float capital) throws ValoresNegativos, IOException
+```
+
+Adds `capital` to `this.capital`. The argument must be 0 or greater — a negative value throws `ValoresNegativos`.
+
+```java
+public void inyectarCapital(float capital) throws ValoresNegativos, IOException {
+    if (capital < 0) {
+        throw new ValoresNegativos();
+    }
+    this.capital += capital;
+    // ... writes NousAcademy.txt
+}
+```
+
+### Manual capital withdrawal
+
+```java
+void retirarCapital(float capital) throws ValoresNegativos, IOException, ImposibleRetirar
+```
+
+Subtracts `capital` from `this.capital`. Two guard conditions apply:
+
+1. If `capital < 0`, throws `ValoresNegativos`.
+2. If `this.capital < capital` (insufficient funds), throws `ImposibleRetirar`.
+
+```java
+public void retirarCapital(float capital)
+        throws ValoresNegativos, IOException, ImposibleRetirar {
+    if (capital < 0) {
+        throw new ValoresNegativos();
+    }
+    if (this.capital < capital) {
+        throw new ImposibleRetirar();
+    }
+    this.capital -= capital;
+    // ... writes NousAcademy.txt
+}
+```
+
+## Persistence
+
+Every method that modifies `capital` immediately rewrites `datos/NousAcademy.txt` using a `BufferedWriter`. The file always contains exactly five lines:
+
+```text
+Line 1: NIT
+Line 2: Academy name
+Line 3: Phone number
+Line 4: Email address
+Line 5: Capital (as a decimal string)
+```
+
+The write sequence is identical in all capital-affecting methods:
+
+```java
+FileWriter fw = new FileWriter(base + "NousAcademy.txt");
+BufferedWriter b = new BufferedWriter(fw);
+b.write(this.nit);
+b.newLine();
+b.write(this.nombre);
+b.newLine();
+b.write(this.telefono);
+b.newLine();
+b.write(this.correo);
+b.newLine();
+b.write(String.valueOf(this.capital));
+b.close();
+fw.close();
+```
+
+<Note>
+  Because the file is overwritten (not appended) on every change, the last written value is always the authoritative balance. No transaction log is maintained.
+</Note>
+
+## Reading the current balance
+
+Use `getCapital()` to read the current in-memory balance:
+
+```java
+double currentBalance = controller.getCapital();
+```
+
+This value always reflects the most recent change applied during the current session. On next startup, the boot class reads line 5 of `NousAcademy.txt` and passes it back to the `AcademiaController` constructor.
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Memberships" icon="id-card" href="/features/memberships/overview">
+    See how membership pricing feeds into the academy's revenue.
+  </Card>
+  <Card title="Teacher contracts" icon="file-contract" href="/features/contracts/overview">
+    Understand the capital check and cost deduction when hiring teachers.
+  </Card>
+</CardGroup>

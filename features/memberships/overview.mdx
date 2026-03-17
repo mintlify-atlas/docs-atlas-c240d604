@@ -1,0 +1,138 @@
+---
+title: "Memberships overview"
+description: "Understand how Membresia links to a student, controls private-class quotas, and affects academy capital."
+---
+
+A membership (`Membresia`) is the financial agreement between the academy and a student. It determines how many private classes the student can book and contributes to the academy's capital when assigned. Every student can hold exactly one active membership at a time.
+
+## The `ComportamientoContable` interface
+
+Both `Membresia` and `Contrato` implement the `ComportamientoContable` interface, which requires two methods:
+
+```java
+public interface ComportamientoContable {
+    double impactoComercial();
+    String generarCodigo(String sufijo);
+}
+```
+
+| Method | What it returns for `Membresia` |
+|---|---|
+| `impactoComercial()` | The membership `precio` — a **positive** value that increases academy capital |
+| `generarCodigo(String sufijo)` | A zero-padded four-digit code with the given prefix, e.g. `MEM0001`, `MEM0002` |
+
+The controller calls `impactoComercial()` after assigning a membership and adds the result to `this.capital`.
+
+## Membership fields
+
+| Field | Type | Description |
+|---|---|---|
+| `codigo` | `String` | Auto-generated identifier, e.g. `MEM0001` |
+| `tipoMembresia` | `TipoMembresia` | The plan tier: `BASICA`, `INTENSIVA`, `PREMIUM`, or `PERSONALIZADA` |
+| `fechaInicio` | `LocalDate` | When the membership takes effect (must not be in the past) |
+| `fechaVencimiento` | `LocalDate` | Computed as `fechaInicio.plusMonths(meses)` |
+| `precio` | `double` | Total membership price for the full duration |
+| `estadoMembresia` | `EstadoMembresia` | Current lifecycle state |
+| `clasesPrivadas` | `int` | Total private-class quota for the full duration |
+| `meses` | `int` | Duration in months |
+
+### Date logic
+
+The expiry date is always derived from the start date and duration:
+
+```java
+this.fechaVencimiento = this.fechaInicio.plusMonths(meses);
+```
+
+If you update `fechaInicio` via `setFechaInicio(LocalDate)`, `fechaVencimiento` is recalculated automatically.
+
+<Note>
+  `fechaInicio` must be today or a future date. Passing a past date throws `FechaInvalida`.
+</Note>
+
+## Membership lifecycle states
+
+A membership starts as `EN_PROGRESO` when it is created. An administrator can transition it to any of the following states using `actualizarEstadoMembresia`:
+
+| `EstadoMembresia` value | Meaning |
+|---|---|
+| `EN_PROGRESO` | Active — student can book private classes up to their quota |
+| `SUSPENDIDA` | Temporarily inactive — booking is paused |
+| `CANCELADA` | Permanently cancelled — no further bookings |
+
+## Admin operations
+
+All membership operations are performed by an administrator through `AcademiaController`. Students are identified by their document type and number.
+
+### Assign a predefined membership
+
+```java
+void asignarMembresiaDefinida(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    TipoMembresia tipo,
+    LocalDate fechaInicio,
+    int meses
+)
+```
+
+Use this method to assign a `BASICA`, `INTENSIVA`, or `PREMIUM` membership. The price and private-class quota are calculated automatically based on `tipo` and `meses`.
+
+<Warning>
+  Passing `TipoMembresia.PERSONALIZADA` to this method throws `TipoMembresiaInvalida`. Use `asignarMembresiaPersonalizada` for custom plans instead.
+</Warning>
+
+### Assign a custom membership
+
+```java
+void asignarMembresiaPersonalizada(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    LocalDate fechaInicio,
+    double precio,
+    int clasesPrivadas,
+    int meses
+)
+```
+
+Use this method when you need a non-standard price or a private-class quota that does not match any predefined tier. `precio` must be greater than 0; `clasesPrivadas` must be 0 or more; `meses` must be greater than 0.
+
+### Update membership status
+
+```java
+void actualizarEstadoMembresia(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    EstadoMembresia estado
+)
+```
+
+Passes the new state down to `e.actualizarEstadoMembresia(estado)` on the located `Estudiante`. The updated student record is immediately written back to disk.
+
+## How assigning a membership affects capital
+
+<Steps>
+  <Step title="Locate the student">
+    `buscarUnEstudiante` finds the `Estudiante` by document type and number, throwing `ElementoNoExistente` if not found.
+  </Step>
+  <Step title="Create the Membresia object">
+    `e.asignarMembresia(...)` constructs a new `Membresia` and attaches it to the student.
+  </Step>
+  <Step title="Add the price to capital">
+    The controller calls `e.getMembresia().impactoComercial()`, which returns `precio`, and adds it to `this.capital`.
+  </Step>
+  <Step title="Persist the changes">
+    The updated student is serialized back to its `.est` file. The academy's `NousAcademy.txt` is rewritten with the new capital value on line 5.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Membership types" icon="list" href="/features/memberships/types">
+    Compare BASICA, INTENSIVA, PREMIUM, and PERSONALIZADA plans with pricing details.
+  </Card>
+  <Card title="Capital management" icon="coins" href="/features/finance/capital-management">
+    See how memberships and contracts together drive the academy's financial balance.
+  </Card>
+</CardGroup>

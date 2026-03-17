@@ -1,0 +1,153 @@
+---
+title: "Architecture"
+description: "How NOUS Academy is structured — packages, layers, and data flow."
+---
+
+## Package structure
+
+NOUS Academy is a single-module Java project organized into seven packages under `com.nousacademy`:
+
+```
+src/com/nousacademy/
+├── boot/               Boot and initialization classes
+├── contabilidad/       Financial entities: Membresia, Contrato, enums
+├── controller/         AcademiaController — single application controller
+├── excepciones/        All custom exception classes (37 total)
+├── interfacegrafica/   Java Swing UI frames and helpers
+├── modelo/             Core domain: Clase, ClaseGrupal, ClasePersonalizada, Grupo, Reserva
+└── usuarios/           User hierarchy: Usuario, Estudiante, Docente, enums
+```
+
+## Layered architecture
+
+NOUS Academy follows a three-layer architecture:
+
+```
+┌─────────────────────────────────────┐
+│          Interface Layer            │
+│  AdminFrame / StudentFrame /        │
+│  TeacherFrame / LoginFrame          │
+│  (com.nousacademy.interfacegrafica) │
+├─────────────────────────────────────┤
+│         Controller Layer            │
+│       AcademiaController            │
+│    (com.nousacademy.controller)     │
+├─────────────────────────────────────┤
+│           Domain Layer              │
+│  modelo / usuarios / contabilidad   │
+│  + excepciones                      │
+└─────────────────────────────────────┘
+          │ reads/writes
+┌─────────▼───────────────────────────┐
+│       Persistence Layer             │
+│  Java Object Serialization          │
+│  datos/*.usr *.est *.doce           │
+│  datos/*.grp *.res NousAcademy.txt  │
+└─────────────────────────────────────┘
+```
+
+### Interface layer
+
+Four `JFrame` subclasses handle the UI:
+
+| Class | Role | Description |
+|---|---|---|
+| `LoginFrame` | All | Login screen; delegates authentication to `AcademiaController` |
+| `AdminFrame` | ADMINISTRADOR | Tabbed management console for all entities |
+| `StudentFrame` | ESTUDIANTE | Student portal: groups, reservations, ratings |
+| `TeacherFrame` | DOCENTE | Teacher portal: assigned classes, start/finish |
+
+Helper classes in the same package:
+
+- `Theme` — color palette and Swing `UIManager` configuration
+- `ControllerProvider` — loads the `AcademiaController` from boot files
+- `UiDialogs` — reusable dialog utilities
+- `ArrayTableModel` — generic `JTable` model for entity arrays
+- `Parsers` — string-to-domain-type conversion utilities
+- `DatePicker` — calendar widget for date selection
+
+### Controller layer
+
+`AcademiaController` is the single facade that the UI calls for every operation. It owns all in-memory arrays (`Usuario[]`, `Estudiante[]`, `Docente[]`, `Reserva[]`, `Grupo[]`) and the academy's own NIT, name, phone, email, and capital.
+
+Every public method:
+1. Validates business rules (throws a typed exception on failure)
+2. Mutates the in-memory state
+3. Writes the affected entity back to disk
+
+### Domain layer
+
+<Tabs>
+  <Tab title="usuarios">
+    ```
+    Usuario (Serializable)
+    ├── Estudiante    — adds Membresia, Grupo[], private-class tracking
+    └── Docente       — adds Contrato, historialContratos[], class history, rating
+    ```
+    `TipoDocumento` enum: CC, TI, CE, PP
+    `TipoUsuario` enum: ADMINISTRADOR, ESTUDIANTE, DOCENTE
+  </Tab>
+  <Tab title="modelo">
+    ```
+    Clase (abstract, Serializable)
+    ├── ClaseGrupal        — adds aforoMin, aforoMax
+    └── ClasePersonalizada — adds info String (special instructions)
+
+    Reserva (Serializable)
+    └── wraps a Clase instance
+        adds: docente, estudiantes[], estado, calificaciones, timestamps
+
+    Grupo (Serializable)
+    └── holds Estudiante[], Docente[], Reserva[]
+    ```
+  </Tab>
+  <Tab title="contabilidad">
+    ```
+    ComportamientoContable (interface)
+    ├── impactoComercial() → double
+    └── generarCodigo(String sufijo) → String
+
+    Membresia implements ComportamientoContable
+    Contrato  implements ComportamientoContable
+    ```
+    Enums: `TipoMembresia`, `EstadoMembresia`, `EstadoContrato`
+  </Tab>
+</Tabs>
+
+### Persistence layer
+
+Every entity serializes itself to a binary file using Java's built-in `ObjectOutputStream`. Files are stored in `datos/` with predictable names:
+
+| Entity | File naming | Extension |
+|---|---|---|
+| Usuario (admin) | `<TipoDoc prefix><numDoc>` | `.usr` |
+| Estudiante | `<TipoDoc prefix><numDoc>` | `.est` |
+| Docente | `<TipoDoc prefix><numDoc>` | `.doce` |
+| Grupo | `<codigo>` (e.g. `GRUP001`) | `.grp` |
+| Reserva | `<codigo>` (e.g. `PB0001`) | `.res` |
+| Academy config | `NousAcademy` | `.txt` (plain text) |
+
+Document type prefix is the first two characters of the `TipoDocumento` enum name (e.g. `CC`, `TI`, `CE`, `PP`).
+
+## Boot sequence
+
+```
+NousSwingApp.main()
+  └─ Theme.install()                        — configure Swing look and feel
+  └─ ControllerProvider.cargarDesdeBootClass()
+       └─ BootEmpresa.cargar()              — read NousAcademy.txt → AcademiaController
+       └─ BootClass.cargarUsuarios()        — deserialize all .usr files
+       └─ BootClass.cargarEstudiantes()     — deserialize all .est files
+       └─ BootClass.cargarDocentes()        — deserialize all .doce files
+       └─ BootClass.cargarGrupos()          — deserialize all .grp files
+       └─ BootClass.cargarReservas()        — deserialize all .res files
+  └─ LoginFrame.show(controller)
+```
+
+## Exception strategy
+
+All business rule violations throw a specific checked exception from `com.nousacademy.excepciones`. There are 37 exception classes. The UI catches these at the frame level and displays them in localized error dialogs via `ExceptionText` and `UiDialogs`.
+
+<Note>
+  All exceptions extend `Exception` (checked), so every controller method that can fail declares its exceptions in its `throws` clause. The UI is the top-level handler.
+</Note>

@@ -1,0 +1,161 @@
+---
+title: "Reserva"
+description: "A scheduled class session that tracks participants, timing, state, and ratings."
+---
+
+`Reserva` is the core scheduling object in NOUS Academy. Each reservation wraps exactly one `Clase` instance — either a `ClaseGrupal` or a `ClasePersonalizada` — and manages the full lifecycle of that session from scheduling through rating. Two constructor overloads create the appropriate class type.
+
+## Fields
+
+<ResponseField name="clase" type="Clase">
+  The class definition embedded in this reservation. An instance of `ClaseGrupal` (for group reservations) or `ClasePersonalizada` (for private reservations). Immutable after creation.
+
+  <Expandable title="Clase fields">
+    <ResponseField name="codigo" type="String">
+      Auto-generated code. Group classes use the prefix `PB-` (e.g., `PB-001`); private classes use `PV-` (e.g., `PV-001`).
+    </ResponseField>
+    <ResponseField name="titulo" type="String">
+      Title of the class.
+    </ResponseField>
+    <ResponseField name="descripcion" type="String">
+      Detailed description.
+    </ResponseField>
+    <ResponseField name="tema" type="String">
+      Subject or theme.
+    </ResponseField>
+    <ResponseField name="duracion" type="float">
+      Planned duration in minutes.
+    </ResponseField>
+    <ResponseField name="aforoMinimo" type="int">
+      Minimum required attendees (group classes only). The session cannot start unless this is met.
+    </ResponseField>
+    <ResponseField name="aforoMaximo" type="int">
+      Maximum allowed attendees (group classes only). The reservation moves to `LLENA` once reached.
+    </ResponseField>
+    <ResponseField name="informacionAdjunta" type="String">
+      Optional supplementary information (private classes only). May be empty.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="horaInicioEsperada" type="LocalDateTime" required>
+  Scheduled start time. Must be in the future at construction time.
+</ResponseField>
+
+<ResponseField name="horaCierreEsperada" type="LocalDateTime">
+  Computed end time: `horaInicioEsperada` plus `duracion` minutes.
+</ResponseField>
+
+<ResponseField name="horaInicioReal" type="LocalDateTime">
+  Actual start time. Set when `iniciarClase()` is called.
+</ResponseField>
+
+<ResponseField name="horaCierreReal" type="LocalDateTime">
+  Actual end time. Set when `finalizarClase()` is called.
+</ResponseField>
+
+<ResponseField name="duracionReal" type="float">
+  Actual duration in minutes, calculated from `horaInicioReal` to `horaCierreReal`.
+</ResponseField>
+
+<ResponseField name="estadoReserva" type="EstadoReserva">
+  Current state of the reservation. See the [EstadoReserva values](#estadoreserva-values) table.
+</ResponseField>
+
+<ResponseField name="estadoDocente" type="EstadoDocente">
+  State of the teacher assignment. `ACEPTADA` when a teacher is assigned; `EN_ESPERA` when cancelled.
+</ResponseField>
+
+<ResponseField name="docente" type="Docente">
+  The teacher assigned to deliver this session. `null` until assigned via `asignarDocente()`.
+</ResponseField>
+
+<ResponseField name="estudiantes" type="Estudiante[]">
+  Students registered for the session. Added by `reservarEstudiante()`, removed by `cancelarReserva()`. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="asistentes" type="Estudiante[]">
+  Students who have actually joined the in-progress session via `unirseClase()`. Used for attendance and rating eligibility. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="calificacionIndividual" type="float[]">
+  One rating entry per student who has rated the session. Ratings must be between 1 and 5 (inclusive).
+</ResponseField>
+
+<ResponseField name="calificacionGeneral" type="float">
+  Running average of all values in `calificacionIndividual`. Recalculated after each rating.
+</ResponseField>
+
+<ResponseField name="calificada" type="boolean">
+  `true` once at least one student has submitted a rating. Used by `Docente.calificacionDocente()` to include the reservation in the teacher's average.
+</ResponseField>
+
+## EstadoReserva values
+
+| Value | Meaning |
+|---|---|
+| `PENDIENTE` | Scheduled, not yet started |
+| `EN_CURSO` | Class is currently in progress |
+| `LLENA` | Maximum capacity reached (no more students can join) |
+| `EXITOSA` | Class finished within the acceptable time window |
+| `PREMATURA` | Class ended more than 25 minutes early (teacher is penalized) |
+| `TARDE` | Teacher started the class more than 10 minutes late |
+| `CANCELADA` | Cancelled administratively or by the last student in a private class |
+| `SANCIONADA` | Reserved for future sanction workflows |
+
+## Lifecycle
+
+```text
+PENDIENTE → LLENA (capacity reached)
+         → EN_CURSO (teacher starts within the valid window)
+         → TARDE (teacher starts more than 10 minutes late)
+EN_CURSO  → EXITOSA (finished within time)
+          → PREMATURA (finished 25+ minutes early)
+Any state → CANCELADA (administrative cancellation)
+```
+
+## Timing constraints
+
+- A teacher may not start a class earlier than **5 minutes before** `horaInicioEsperada`.
+- A teacher starting more than **10 minutes after** `horaInicioEsperada` sets the state to `TARDE` and throws `DocenteRetardado`.
+- Finishing more than **25 minutes before** the planned duration sets the state to `PREMATURA` and throws `FinalizacionPrematuraDeReserva`.
+- Students may not cancel a reservation within **30 minutes** of the scheduled start time.
+
+## Validation rules
+
+| Exception | Condition |
+|---|---|
+| `FechaInvalida` | `horaInicioEsperada` is in the past |
+| `ValoresNegativos` | `duracion`, `aforoMin`, or `aforoMax` is negative |
+| `ElementosVacios` | Any required string field is empty |
+| `AforoIncompatible` | `aforoMax < aforoMin` (group class only) |
+| `ClaseLlena` | Student tries to join when status is `LLENA` |
+| `ClaseYaReservada` | Student is already `reservado` |
+| `ClasesPrivadasNoSuficientes` | Student has no private class quota remaining |
+| `DocenteRetardado` | Teacher starts more than 10 minutes late |
+| `ClaseEnEstadoNoIniciar` | Start attempt is more than 5 minutes before `horaInicioEsperada` |
+| `NoSuficienteAforo` | Group class start attempted with fewer students than `aforoMinimo` |
+| `ClaseNuncaIniciada` | `finalizarClase()` called when state is not `EN_CURSO` |
+| `FinalizacionPrematuraDeReserva` | Session ended 25+ minutes early |
+| `ClaseEnEstadoNOCalificar` | Rating attempt when state is not `EXITOSA`, `PREMATURA`, or `TARDE` |
+| `CalificacionInvalida` | Rating value is outside the range 1–5 |
+| `EstudianteNoEnlistadoEnReserva` | Student is not in `estudiantes` or `asistentes` arrays for the respective operation |
+| `ClaseEnEstadoNoCancelar` | Cancellation attempted within 30 minutes of start |
+| `ClaseEnEstadoNoUnirse` | `unirseClase()` called when state is not `EN_CURSO` |
+| `NingunDocenteAsignado` | `cancelarDocente()` called when `docente == null` |
+| `ReservaNoEnDocente` | Reservation is not in the teacher's `historialClasesImpartidas` |
+
+## File persistence
+
+- **Extension:** `.res`
+- **Naming convention:** `<clase.codigo>.res` (e.g., `PB-001.res`, `PV-001.res`)
+
+Serialization uses `copiarFicheroReserva(String dir)` via `ObjectOutputStream`.
+
+## Related pages
+
+- [Estudiante](/reference/data-model/estudiante) — enrolled students
+- [Docente](/reference/data-model/docente) — assigned teacher
+- [Grupo](/reference/data-model/grupo) — groups that hold reservations
+- [AcademiaController](/reference/controller/academia-controller) — full reservation management methods
+- [Exceptions overview](/reference/exceptions/overview)

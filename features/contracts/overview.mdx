@@ -1,0 +1,169 @@
+---
+title: "Teacher contracts"
+description: "Understand how Contrato ties a teacher to a time-bound employment agreement and reduces academy capital."
+---
+
+A contract (`Contrato`) formalizes the employment of a teacher (`Docente`). It defines the teacher's base salary, minimum required hours, the rate for additional private-hour teaching, and the duration of the agreement. Assigning a contract deducts the total salary cost from the academy's capital upfront.
+
+## The `ComportamientoContable` interface
+
+`Contrato` implements `ComportamientoContable`, just like `Membresia`:
+
+```java
+public interface ComportamientoContable {
+    double impactoComercial();
+    String generarCodigo(String sufijo);
+}
+```
+
+| Method | What it returns for `Contrato` |
+|---|---|
+| `impactoComercial()` | `-salarioBase × meses` — a **negative** value that reduces academy capital |
+| `generarCodigo(String sufijo)` | A zero-padded three-digit code with the given prefix, e.g. `CON001`, `CON002` |
+
+```java
+@Override
+public double impactoComercial() {
+    return -this.salarioBase * this.meses;
+}
+```
+
+## Contract fields
+
+| Field | Type | Description |
+|---|---|---|
+| `codigo` | `String` | Auto-generated identifier, e.g. `CON001` |
+| `fechaInicio` | `LocalDate` | Contract start date (must not be in the past) |
+| `fechaFinalizacion` | `LocalDate` | Computed as `fechaInicio.plusMonths(meses)`; also set to `LocalDate.now()` when a contract is finalized early |
+| `salarioBase` | `double` | Monthly base salary; must be greater than 0 |
+| `horasMinimas` | `double` | Minimum teaching hours required per month; must be 0 or greater |
+| `costoHoraPrivadaAdicional` | `double` | Rate charged for private hours beyond `horasMinimas`; must be 0 or greater |
+| `meses` | `int` | Duration in months; must be greater than 0 |
+| `estadoContato` | `EstadoContrato` | Current lifecycle state (note: field name is `estadoContato`) |
+
+## Contract lifecycle states
+
+A contract is created with state `ACTIVO`. An administrator can transition it using `actualizarEstadoContratoDocente`:
+
+| `EstadoContrato` value | Meaning |
+|---|---|
+| `ACTIVO` | Contract is in force; teacher is active |
+| `SUSPENDIDO` | Contract is temporarily paused |
+| `FINALIZADO` | Contract has ended; teacher's active contract is cleared |
+
+<Note>
+  When you transition a contract to `FINALIZADO`, the `Docente.actualizarEstadoContrato` method sets `this.contrato` to `null`, effectively removing the teacher's active contract.
+</Note>
+
+## Contract constructor
+
+```java
+public Contrato(
+    LocalDate fechaInicio,
+    double salarioBase,
+    double horasMinimas,
+    double costoHoraPrivadaAdicional,
+    int meses
+) throws FechaInvalida, ValoresNegativos
+```
+
+**Parameters:**
+
+| Parameter | Type | Requirement |
+|---|---|---|
+| `fechaInicio` | `LocalDate` | Must not be `null` and must not be in the past |
+| `salarioBase` | `double` | Must be greater than 0 |
+| `horasMinimas` | `double` | Must be 0 or greater |
+| `costoHoraPrivadaAdicional` | `double` | Must be 0 or greater |
+| `meses` | `int` | Must be greater than 0 |
+
+## Admin operations
+
+### Assign a contract
+
+```java
+void asignarContrato(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    LocalDate fechaInicio,
+    double salarioBase,
+    double horasMinimas,
+    double costoHoraA,
+    int meses
+) throws ElementoNoExistente, FechaInvalida, ValoresNegativos,
+         EstadoContratoInvalido, DineroInsuficienteParaContratar, IOException
+```
+
+Before creating the contract, the controller validates that the academy has enough capital:
+
+```java
+if (this.capital < salarioBase * meses) {
+    throw new DineroInsuficienteParaContratar();
+}
+```
+
+If capital is sufficient, the method proceeds to call `d.asignarContrato(...)` on the located `Docente`, then adds `impactoComercial()` (a negative value) to `this.capital`.
+
+<Warning>
+  Ensure `this.capital >= salarioBase * meses` before calling `asignarContrato`. Use `inyectarCapital` to add funds if the check would fail. See [Capital management](/features/finance/capital-management) for details.
+</Warning>
+
+### Update contract status
+
+```java
+void actualizarEstadoContratoDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    EstadoContrato estdo
+) throws EstadoContratoInvalido, ElementosVacios, ElementoNoExistente, IOException
+```
+
+Delegates to `d.actualizarEstadoContrato(estdo)`. The updated teacher record is immediately serialized back to its `.doce` file.
+
+## Contract history
+
+Each `Docente` holds one active contract (`contrato`) and an array of past contracts (`historialContratos`). When you assign a new contract to a teacher who already has one, the existing contract is finalized and archived:
+
+```java
+if (this.contrato != null) {
+    this.contrato.actualizarEstadoContrato(EstadoContrato.FINALIZADO);
+    this.contrato.setFechaFinalizacion(LocalDate.now());
+    this.historialContratos = Arrays.copyOf(
+        this.historialContratos,
+        this.historialContratos.length + 1
+    );
+    this.historialContratos[this.historialContratos.length - 1] = this.contrato;
+}
+this.contrato = new Contrato(fechaInicio, salarioBase, horasMinimas,
+                             costoHoraPrivadaAdicional, meses);
+```
+
+The old contract's `fechaFinalizacion` is updated to today's date before it moves to `historialContratos`. You can retrieve the full history with `getHistorialContratos()`.
+
+## Typical workflow
+
+<Steps>
+  <Step title="Create the teacher">
+    Call `crearDocente` with the teacher's personal details and area of expertise (`especialidad`). The teacher is added to `docentes[]` and their record is saved as a `.doce` file.
+  </Step>
+  <Step title="Verify available capital">
+    Confirm that `getCapital() >= salarioBase * meses`. If not, call `inyectarCapital` to top up the balance before proceeding.
+  </Step>
+  <Step title="Assign the contract">
+    Call `asignarContrato` with the teacher's document identifiers and the contract terms. The academy capital is reduced by `salarioBase × meses` and the teacher's file is updated on disk.
+  </Step>
+  <Step title="Update contract status as needed">
+    During the contract's lifetime, use `actualizarEstadoContratoDocente` to toggle between `ACTIVO` and `SUSPENDIDO`. When the engagement ends, set the state to `FINALIZADO` — this moves the contract to `historialContratos` and clears the teacher's active contract.
+  </Step>
+</Steps>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Capital management" icon="coins" href="/features/finance/capital-management">
+    See how contract costs and membership revenue together determine the academy's financial balance.
+  </Card>
+  <Card title="Teacher management" icon="chalkboard-user" href="/features/users/teachers">
+    Learn how to create, update, and remove teacher accounts.
+  </Card>
+</CardGroup>

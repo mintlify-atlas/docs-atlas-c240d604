@@ -1,0 +1,259 @@
+---
+title: "Students"
+description: "Register and manage students in NOUS Academy — including memberships, group enrollment, and class reservations."
+---
+
+Students hold the `ESTUDIANTE` role. They are represented by the `Estudiante` class, which extends `Usuario` and adds membership tracking, group enrollment, and class reservation history. Administrators create and manage student records; students interact with the system through their own panel to join groups, book classes, and rate sessions.
+
+## Student fields
+
+`Estudiante` inherits all nine fields from `Usuario` and adds the following:
+
+| Field | Type | Description |
+|---|---|---|
+| `nombre` | `String` | First name |
+| `apellidos` | `String` | Last name(s) |
+| `telefono` | `String` | Phone number (numeric, ≥ 5 digits) |
+| `correo` | `String` | Email address (must end with `@nousacademy.co`) |
+| `tipoDocumento` | `TipoDocumento` | Document type — `CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, or `NIT` |
+| `numeroDocumento` | `String` | Document number (numeric, ≥ 5 digits) |
+| `usuario` | `String` | Login username |
+| `contrasena` | `String` | Login password |
+| `tipoUsuario` | `TipoUsuario` | Always `ESTUDIANTE` for this role |
+| `membresia` | `Membresia` | Current active membership (null if none assigned) |
+| `historialMembresias` | `Membresia[]` | All previous memberships |
+| `historialClases` | `Clase[]` | All classes the student has been enrolled in |
+| `clasesPrivadasRestantes` | `int` | Private class slots left in the current membership |
+| `grupos` | `Grupo[]` | Groups the student belongs to (max 4) |
+| `cantidadDeGrupos` | `int` | Current group count |
+| `reservado` | `boolean` | Whether the student currently has an active reservation |
+
+<Note>
+  The `membresia` field is `null` when a student is first created. A membership must be assigned separately by an administrator before the student can book private classes.
+</Note>
+
+## Validation rules
+
+The `Estudiante` constructor delegates to the `Usuario` constructor, so all base validation rules apply.
+
+| Rule | Exception thrown |
+|---|---|
+| Any field is empty or blank | `ElementosVacios` |
+| `nombre` or `apellidos` is fewer than 2 characters | `NombreNoValido` |
+| `correo` does not contain `@` or does not end with `nousacademy.co` | `CorreoNoValido` |
+| `telefono` or `numeroDocumento` parses to a negative number | `ValoresNegativos` |
+| `telefono` or `numeroDocumento` has fewer than 5 characters | `LongitudNoValida` |
+| `tipoDocumento` + `numeroDocumento` or `usuario` already exists | `Duplicados` |
+
+## Controller methods — CRUD
+
+These methods are called by administrators from the **Estudiantes** tab.
+
+### `crearEstudiante`
+
+```java
+public void crearEstudiante(
+    String nombre, String apellidos, String telefono,
+    String correo, TipoDocumento tipoDocumento, String numeroDocumento,
+    String usuario, String contrasena
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+Creates a new `Estudiante`, checks for duplicate document and username, appends the student to the in-memory array, and writes a `.est` file to `datos/`.
+
+### `eliminarEstudiante`
+
+```java
+public void eliminarEstudiante(
+    TipoDocumento tipoDocumento, String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Locates the student by document, deletes the corresponding `.est` file, and removes the entry from memory.
+
+### `actualizarEstudiante`
+
+```java
+public void actualizarEstudiante(
+    TipoDocumento originalTD, String originalND,
+    String nombre, String apellidos, String telefono,
+    String correo, TipoDocumento tipoDocumento, String numeroDocumento
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos
+```
+
+Updates any non-empty field on the located student, then deletes the old `.est` file and writes a new one with the updated identifiers.
+
+### `leerEstudiantes`
+
+```java
+public Estudiante[] leerEstudiantes()
+```
+
+Returns a copy of the in-memory student array. The **Estudiantes** tab uses this to populate its table, displaying name, username, document, email, phone, current membership type, membership status, and remaining private class slots.
+
+## Controller methods — student actions
+
+The following methods are called with a logged-in `Estudiante` instance as the first parameter.
+
+### `entrarGrupo`
+
+```java
+public void entrarGrupo(
+    Estudiante estudiante, String codigo
+) throws ElementoNoExistente, CantidadGruposExcedida, IOException, Duplicados
+```
+
+Adds the student to an existing group identified by `codigo`. A student can belong to at most **4 groups** simultaneously. Attempting to join a fifth throws `CantidadGruposExcedida`.
+
+### `salirseGrupo`
+
+```java
+public void salirseGrupo(
+    Estudiante estudiante, String codigo
+) throws ElementoNoExistente, GrupoNoEncontrado, EstudianteNoEnGrupo, IOException
+```
+
+Removes the student from the specified group and updates both the student and group files on disk.
+
+### `reservarClase`
+
+```java
+public void reservarClase(
+    Estudiante estudiante, String codigo
+) throws ElementoNoExistente, ClasesPrivadasNoSuficientes, ClaseYaReservada, ClaseLlena, IOException
+```
+
+Books the student into a reservation identified by `codigo`. For private classes (`ClasePersonalizada`), the student's `clasesPrivadasRestantes` counter is decremented by one. Throws `ClaseYaReservada` if the student is already marked as reserved, and `ClaseLlena` if the reservation has no remaining capacity.
+
+### `cancelarResrva`
+
+```java
+public void cancelarResrva(
+    Estudiante estudiante, String codigo
+) throws ElementoNoExistente, EstudianteNoEnlistadoEnReserva,
+         ClaseEnEstadoNoCancelar, ClaseNoEnEstudiante, IOException
+```
+
+Cancels the student's booking. The cancellation is only allowed when the reservation is in a cancellable state; otherwise `ClaseEnEstadoNoCancelar` is thrown.
+
+### `unirseReserva`
+
+```java
+public void unirseReserva(
+    Estudiante estudiante, String codigo
+) throws ElementoNoExistente, ClaseEnEstadoNoUnirse, EstudianteNoEnlistadoEnReserva, IOException
+```
+
+Marks the student as having joined an already-started class session. The student must be enrolled in the reservation beforehand.
+
+### `calificarReserva`
+
+```java
+public void calificarReserva(
+    Estudiante estudiante, float calificacion, String codigo
+) throws ElementoNoExistente, ClaseEnEstadoNOCalificar,
+         EstudianteNoEnlistadoEnReserva, IOException, CalificacionInvalida
+```
+
+Submits a numeric rating for a completed class. Ratings feed into the assigned teacher's `calificacion` average. The class must have finished before ratings are accepted.
+
+## Membership linkage
+
+Every `Estudiante` has a `membresia` field of type `Membresia`. This field starts as `null` and must be assigned by an administrator. There are two assignment methods:
+
+<Tabs>
+  <Tab title="Predefined membership">
+    ```java
+    // Assign one of the three standard tiers: BASICA, INTENSIVA, PREMIUM
+    controller.asignarMembresiaDefinida(
+        tipoDocumento, numeroDocumento,
+        TipoMembresia.PREMIUM, LocalDate.of(2025, 9, 1), 12
+    );
+    ```
+
+    The tier determines the price and included private class slots automatically.
+  </Tab>
+  <Tab title="Custom membership">
+    ```java
+    // Assign a fully custom plan with explicit price and private class count
+    controller.asignarMembresiaPersonalizada(
+        tipoDocumento, numeroDocumento,
+        LocalDate.of(2025, 9, 1), 150000.0, 8, 3
+    );
+    ```
+
+    You specify `fechaInicio`, `precio`, `clasesPrivadas`, and `meses` manually.
+  </Tab>
+</Tabs>
+
+When a new membership is assigned to a student who already has one, the existing membership is moved to `historialMembresias` with status `CANCELADA` before the new one is set.
+
+<Warning>
+  A student cannot book private classes unless they have an active membership with `clasesPrivadasRestantes > 0`. Attempting to do so throws `ClasesPrivadasNoSuficientes`.
+</Warning>
+
+## File persistence
+
+| Aspect | Detail |
+|---|---|
+| Extension | `.est` |
+| File name pattern | `<doc_prefix><numeroDocumento>.est` |
+| Storage directory | `datos/` |
+| Serialization method | `copiarFicheroEstudiante(String dir)` on `Estudiante` |
+
+The document prefix is derived from the first two characters of the `TipoDocumento` name:
+
+```text
+CC12345678.est
+TA98765432.est
+CE11223344.est
+```
+
+The file is rewritten on every state change — creation, update, group join/leave, reservation booking/cancellation, rating submission, and membership assignment.
+
+## Creating a student
+
+<Steps>
+  <Step title="Open the Estudiantes tab">
+    In the **Admin Panel**, click the **Estudiantes** tab.
+  </Step>
+  <Step title="Fill in the creation form">
+    Complete all fields in the **Crear** section:
+
+    | Field | Requirement |
+    |---|---|
+    | **Nombre** | At least 2 characters |
+    | **Apellidos** | At least 2 characters |
+    | **Teléfono** | Numeric, at least 5 digits |
+    | **Correo** | Must end with `@nousacademy.co` |
+    | **Tipo doc.** | Select from the dropdown |
+    | **Núm. doc.** | Numeric, at least 5 digits, unique |
+    | **Usuario** | Unique username |
+    | **Contraseña** | Non-empty password |
+  </Step>
+  <Step title="Click Crear estudiante">
+    The controller validates fields, checks for duplicates, constructs the `Estudiante` object, and writes the `.est` file to `datos/`.
+  </Step>
+  <Step title="Assign a membership">
+    Scroll to the **Membresías** section of the same panel. Select the student's document, choose a plan type (or use the custom form), set the start date and duration, then click **Asignar definida** or **Asignar personalizada**.
+  </Step>
+  <Step title="Verify the record">
+    Click **Refrescar**. The table shows the student's current membership type, status, and remaining private class slots.
+  </Step>
+</Steps>
+
+<CardGroup cols={2}>
+  <Card title="Administrators" icon="shield-halved" href="/features/users/administrators">
+    Manage administrator accounts and platform access.
+  </Card>
+  <Card title="Teachers" icon="chalkboard-teacher" href="/features/users/teachers">
+    Learn how to hire teachers and assign them to classes.
+  </Card>
+  <Card title="Memberships" icon="id-card" href="/features/memberships/overview">
+    Learn about the three membership tiers and custom plans.
+  </Card>
+  <Card title="Reservations" icon="calendar" href="/features/classes/reservations">
+    Understand how class reservations work and how students book them.
+  </Card>
+</CardGroup>

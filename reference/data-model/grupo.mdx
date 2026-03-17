@@ -1,0 +1,66 @@
+---
+title: "Grupo"
+description: "A named collection of students, teachers, and reservations used to organize group activities."
+---
+
+`Grupo` represents an organizational unit within the academy. You can add students (up to 4 per student), teachers, and reservations to a group. Groups are created by administrators and joined by students. Each group receives a sequential auto-generated code.
+
+## Fields
+
+<ResponseField name="codigo" type="String">
+  Auto-generated unique identifier with the format `GRUP001`, `GRUP002`, etc. Generated at construction time by a static counter.
+</ResponseField>
+
+<ResponseField name="nombre" type="String" required>
+  Display name of the group. Must not be empty.
+</ResponseField>
+
+<ResponseField name="descripcion" type="String" required>
+  Brief description of the group's purpose. Must not be empty.
+</ResponseField>
+
+<ResponseField name="estudiantes" type="Estudiante[]">
+  Students currently enrolled in this group. An `Estudiante` is added here when they join and removed when they leave. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="docentes" type="Docente[]">
+  Teachers assigned to this group. Added via `anadirDocente()` and removed via `eliminarDocente()`. Starts as an empty array.
+</ResponseField>
+
+<ResponseField name="reservas" type="Reserva[]">
+  Reservations linked to this group. Added via `anadirReserva()` and removed via `eliminarReserva()`. Starts as an empty array.
+</ResponseField>
+
+## Validation rules
+
+| Exception | Condition |
+|---|---|
+| `ElementosVacios` | `nombre` or `descripcion` is empty at construction time |
+| `Duplicados` | The same `Estudiante` instance is added to the group more than once via `anadirEstudiante()` |
+| `CantidadGruposExcedida` | A student already belongs to 4 groups when `anadirEstudiante()` is called |
+| `EstudianteNoEnGrupo` | Trying to remove a student who is not in the group |
+| `DocenteNoEnGrupo` | Trying to remove a teacher who is not in the group |
+| `ReservaNoEncontradaEnGrupo` | Trying to remove a reservation whose code does not match any entry |
+| `GrupoNoEncontrado` | Thrown by `eliminarGrupo()` when the student does not have this group in their list |
+
+## Code generation
+
+Codes follow the pattern `GRUP` + zero-padded 3-digit serial, e.g., `GRUP001`. The counter is static and increments globally, so codes are unique across the application session.
+
+## Administrative deletion
+
+Calling `eliminacionAdministrativa()` removes this group from every enrolled student's `grupos` array before the group itself is deleted from the controller's array. This keeps student group lists consistent.
+
+## File persistence
+
+- **Extension:** `.grp`
+- **Naming convention:** `<codigo>.grp` (e.g., `GRUP001.grp`)
+
+Serialization uses `copiarFicheroGrupo(String dir)` via `ObjectOutputStream`.
+
+## Related pages
+
+- [Estudiante](/reference/data-model/estudiante) — students that join groups
+- [Docente](/reference/data-model/docente) — teachers assigned to groups
+- [Reserva](/reference/data-model/reserva) — reservations linked to groups
+- [AcademiaController](/reference/controller/academia-controller) — `crearGrupo`, `actualizarGrupo`, `eliminarGrupo`, `entrarGrupo`, `salirseGrupo`, `añadirDocente`, `anadirReserva`

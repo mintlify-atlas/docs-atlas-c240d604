@@ -1,0 +1,81 @@
+---
+title: "Contrato"
+description: "Employment contract assigned to a teacher, specifying salary, hours, and duration."
+---
+
+`Contrato` represents the employment agreement between NOUS Academy and a teacher. It defines the teacher's base salary, minimum work hours, additional-hour rate, and contract duration. The academy's capital is reduced by the total salary cost when a contract is created. Each contract receives a sequential auto-generated code.
+
+## Fields
+
+<ResponseField name="codigo" type="String">
+  Auto-generated unique identifier with the format `CON001`, `CON002`, etc.
+</ResponseField>
+
+<ResponseField name="fechaInicio" type="LocalDate" required>
+  Contract start date. Must be today or in the future.
+</ResponseField>
+
+<ResponseField name="fechaFinalizacion" type="LocalDate">
+  Computed end date: `fechaInicio` plus `meses` months. Updated automatically when `fechaInicio` changes. Can also be set directly by the system when a contract is finalized early.
+</ResponseField>
+
+<ResponseField name="salarioBase" type="double" required>
+  Monthly base salary. Must be greater than 0.
+</ResponseField>
+
+<ResponseField name="horasMinimas" type="double" required>
+  Minimum contractual hours per month. Must be ≥ 0.
+</ResponseField>
+
+<ResponseField name="costoHoraPrivadaAdicional" type="double" required>
+  Rate charged per hour of private instruction above the minimum. Must be ≥ 0.
+</ResponseField>
+
+<ResponseField name="meses" type="int" required>
+  Contract duration in months. Must be greater than 0.
+</ResponseField>
+
+<ResponseField name="estadoContato" type="EstadoContrato">
+  Current state of the contract. Starts as `ACTIVO`. See the [EstadoContrato values](#estadocontrato-values) table.
+</ResponseField>
+
+## EstadoContrato values
+
+| Value | Meaning |
+|---|---|
+| `ACTIVO` | Contract is in force |
+| `SUSPENDIDO` | Contract is temporarily suspended |
+| `FINALIZADO` | Contract has ended; the teacher's `contrato` field is set to `null` |
+
+## Validation rules
+
+| Exception | Condition |
+|---|---|
+| `FechaInvalida` | `fechaInicio` is `null` or before today |
+| `ValoresNegativos` | `salarioBase ≤ 0`, `horasMinimas < 0`, `costoHoraPrivadaAdicional < 0`, or `meses ≤ 0` |
+| `EstadoContratoInvalido` | `nuevoEstado` is `null` in `actualizarEstadoContrato()` |
+| `DineroInsuficienteParaContratar` | Academy capital is less than `salarioBase * meses` (checked by the controller before creating the contract) |
+
+## Commercial impact
+
+`Contrato` implements `ComportamientoContable`. The `impactoComercial()` method returns `-(salarioBase * meses)`, a negative value that reduces the academy's capital when the controller processes the contract.
+
+```java
+// A contract for 2 months at 3,000,000/month
+new Contrato(LocalDate.of(2026, 4, 1), 3_000_000, 40, 50_000, 2);
+// impactoComercial() = -(3_000_000 * 2) = -6_000_000
+```
+
+## Finalization behavior
+
+When a contract is transitioned to `FINALIZADO` via `Docente.actualizarEstadoContrato()`, the method additionally sets the teacher's `contrato` reference to `null`. This ensures the teacher no longer has an active contract in memory even though the contract record is preserved in `historialContratos`.
+
+## File persistence
+
+Contracts are not persisted as standalone files. They are serialized as part of the `Docente` object (stored in the `.doce` file). The method `copiarFicheroContrato(String dir)` is available for standalone use.
+
+## Related pages
+
+- [Docente](/reference/data-model/docente) — the owner of a contract
+- [AcademiaController](/reference/controller/academia-controller) — `asignarContrato`, `actualizarEstadoContratoDocente`
+- [Exceptions overview](/reference/exceptions/overview)

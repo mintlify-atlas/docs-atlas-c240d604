@@ -1,0 +1,96 @@
+---
+title: "Membresia"
+description: "Membership record that grants a student access to group classes and a private-class quota."
+---
+
+`Membresia` represents a student's subscription to the academy. It determines how many private classes the student may book and for how long. Two constructor overloads exist: one for predefined plan types and one for fully custom plans. Each membership receives a sequential auto-generated code.
+
+## Fields
+
+<ResponseField name="codigo" type="String">
+  Auto-generated unique identifier with the format `MEM0001`, `MEM0002`, etc.
+</ResponseField>
+
+<ResponseField name="tipoMembresia" type="TipoMembresia">
+  The plan type. Set to `PERSONALIZADA` for custom memberships. See the [TipoMembresia values](#tipomembresia-values) table.
+</ResponseField>
+
+<ResponseField name="fechaInicio" type="LocalDate" required>
+  Start date of the membership. Must be today or in the future.
+</ResponseField>
+
+<ResponseField name="fechaVencimiento" type="LocalDate">
+  Computed expiration date: `fechaInicio` plus `meses` months. Recalculated if `fechaInicio` is updated.
+</ResponseField>
+
+<ResponseField name="precio" type="double" required>
+  Total price for the full membership duration. Must be greater than 0. For predefined plans the price is computed automatically based on duration (see [pricing](#predefined-plan-pricing)).
+</ResponseField>
+
+<ResponseField name="estadoMembresia" type="EstadoMembresia">
+  Current status. Starts as `EN_PROGRESO`. See the [EstadoMembresia values](#estadomembresia-values) table.
+</ResponseField>
+
+<ResponseField name="clasesPrivadas" type="int">
+  Number of private classes included in this membership. Must be ≥ 0. For predefined plans, the quota is set automatically.
+</ResponseField>
+
+<ResponseField name="meses" type="int" required>
+  Duration of the membership in months. Must be greater than 0.
+</ResponseField>
+
+## TipoMembresia values
+
+| Value | Private classes per month | Price per month |
+|---|---|---|
+| `BASICA` | 0 | $1,200,000 |
+| `INTENSIVA` | 4 | $2,200,000 |
+| `PREMIUM` | 8 | $3,500,000 |
+| `PERSONALIZADA` | Specified at creation | Specified at creation |
+
+<Note>
+  You cannot use the defined-plan constructor with `TipoMembresia.PERSONALIZADA`. Doing so throws `TipoMembresiaInvalida`. Use the custom constructor instead.
+</Note>
+
+## Predefined plan pricing
+
+When you create a membership with a predefined `TipoMembresia`, the system calculates the total price by multiplying the per-month rate by `meses`:
+
+```java
+// BASICA example — 3 months
+new Membresia(TipoMembresia.BASICA, LocalDate.of(2026, 4, 1), 3);
+// precio = 1_200_000 * 3 = 3_600_000
+// clasesPrivadas = 0 * 3 = 0
+```
+
+## EstadoMembresia values
+
+| Value | Meaning |
+|---|---|
+| `EN_PROGRESO` | Active and valid |
+| `SUSPENDIDA` | Temporarily suspended |
+| `CANCELADA` | Terminated; moved to the student's `historialMembresias` |
+
+## Validation rules
+
+| Exception | Condition |
+|---|---|
+| `FechaInvalida` | `fechaInicio` is `null` or before today |
+| `ValoresNegativos` | `precio ≤ 0`, `clasesPrivadas < 0`, or `meses ≤ 0` (custom constructor) |
+| `ValoresNegativos` | `meses ≤ 0` (defined constructor) |
+| `TipoMembresiaInvalida` | `tipoMembresia` is `null` or `PERSONALIZADA` (defined constructor) |
+| `EstadoMembresiaInvalido` | `nuevoEstado` is `null` in `actualizarEstadoMembresia()` |
+
+## Commercial impact
+
+`Membresia` implements `ComportamientoContable`. The `impactoComercial()` method returns `precio`, which the controller adds to the academy's capital when a membership is assigned.
+
+## File persistence
+
+Memberships are not persisted as standalone files. They are serialized as part of the `Estudiante` object that owns them (stored in the `.est` file). The method `copiarFicheroMembresia(String dir)` exists for standalone use if needed.
+
+## Related pages
+
+- [Estudiante](/reference/data-model/estudiante) — the owner of a membership
+- [AcademiaController](/reference/controller/academia-controller) — `asignarMembresiaDefinida`, `asignarMembresiaPersonalizada`, `actualizarEstadoMembresia`
+- [Exceptions overview](/reference/exceptions/overview)

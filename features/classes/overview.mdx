@@ -1,0 +1,96 @@
+---
+title: "Classes overview"
+description: "How classes and reservations are structured in NOUS Academy, including the two class types and the Reserva scheduling wrapper."
+---
+
+NOUS Academy supports two types of class: **group classes** (`ClaseGrupal`) and **private classes** (`ClasePersonalizada`). Both types share a common base model, `Clase`, and are always accessed through a `Reserva` wrapper that manages scheduling, teacher assignment, student enrollment, and ratings.
+
+## Class hierarchy
+
+```text
+Clase  (abstract)
+├── ClaseGrupal          — group class, code suffix PB
+└── ClasePersonalizada   — private class, code suffix PV
+```
+
+The `Clase` base class holds the fields that are common to both types:
+
+| Field | Type | Description |
+|---|---|---|
+| `codigo` | `String` | Auto-generated unique code (e.g., `PB-001`, `PV-001`) |
+| `titulo` | `String` | Human-readable title |
+| `descripcion` | `String` | Full description of the class content |
+| `tema` | `String` | Subject or topic area |
+| `duracion` | `float` | Scheduled duration in minutes |
+
+All fields except `codigo` are required. The `codigo` is generated automatically at construction time using the class-type-specific `generarCodigo` method, which increments a static counter per type.
+
+## The two class types
+
+<Tabs>
+  <Tab title="Group class (ClaseGrupal)">
+    `ClaseGrupal` extends `Clase` with attendance capacity constraints:
+
+    - **`aforoMinimo`** — minimum number of students required before the class can start
+    - **`aforoMaximo`** — maximum number of students that can enroll
+    - **`aforoActual`** — current number of enrolled students (starts at `0`)
+
+    Group classes are created by **administrators** and have the code suffix `PB` (público). Multiple students can enroll up to `aforoMaximo`.
+  </Tab>
+  <Tab title="Private class (ClasePersonalizada)">
+    `ClasePersonalizada` extends `Clase` with a single extra field:
+
+    - **`informacionAdjunta`** — optional free-text field for special instructions or student-provided context
+
+    Private classes are created by **students** themselves and have the code suffix `PV` (privado). Only one student can enroll; the reservation is marked `LLENA` immediately after the creating student is added.
+  </Tab>
+</Tabs>
+
+## The Reserva wrapper
+
+A `Clase` object is never used directly from the controller layer. Instead, every class is wrapped inside a `Reserva` (reservation) instance, which provides:
+
+- **Scheduling** — `horaInicioEsperada`, `horaCierreEsperada`, `horaInicioReal`, `horaCierreReal`
+- **Teacher assignment** — `docente` field and `estadoDocente` (`ACEPTADA`, `EN_ESPERA`, `DENEGADA`)
+- **Student list** — `estudiantes[]` (enrolled) and `asistentes[]` (actually joined during the session)
+- **State machine** — `estadoReserva` tracks the class through its full lifecycle
+- **Ratings** — `calificacionIndividual[]` per student, `calificacionGeneral` computed as the average
+
+You retrieve a reservation's code via `reserva.getCodigo()`, which delegates to the underlying `clase.getCodigo()`.
+
+<Note>
+  Because each `Reserva` owns exactly one `Clase`, the reservation code and the class code are the same value (e.g., `PB-001`).
+</Note>
+
+## Code generation
+
+Codes are generated with a static counter per class type, zero-padded to three digits:
+
+```java
+// ClaseGrupal
+"PB-" + String.format("%03d", contador)  // → PB-001, PB-002, …
+
+// ClasePersonalizada
+"PV-" + String.format("%03d", contador)  // → PV-001, PV-002, …
+```
+
+<Warning>
+  The counters are in-memory static fields. If the JVM restarts, they reset to `1`. Load existing reservations from disk before creating new ones to avoid code collisions.
+</Warning>
+
+## Explore further
+
+<CardGroup cols={2}>
+  <Card title="Group classes" icon="users" href="/features/classes/group-classes">
+    Capacity constraints, minimum attendance, and how administrators schedule group sessions.
+  </Card>
+  <Card title="Private classes" icon="user" href="/features/classes/private-classes">
+    Student-created sessions, membership credit requirements, and the `informacionAdjunta` field.
+  </Card>
+  <Card title="Reservations" icon="calendar" href="/features/classes/reservations">
+    Full lifecycle: creation → teacher assignment → start → finish → rating.
+  </Card>
+  <Card title="Groups" icon="layer-group" href="/features/groups/overview">
+    Organizing students, teachers, and reservations into named groups.
+  </Card>
+</CardGroup>
